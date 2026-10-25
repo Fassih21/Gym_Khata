@@ -102,7 +102,7 @@ export const Route = createRootRouteWithContext<{ queryClient: import("@tanstack
         href: appCss,
       },
       ...FONT_LINKS,
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      
     ],
   }),
   shellComponent: RootShell,
