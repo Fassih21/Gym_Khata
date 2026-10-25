@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gymkhata",
+  "compatibility_date": "2026-10-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": ".output/server/index.mjs",
+  "no_bundle": true,
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".output/public"
+  },
+  "rules": [
+    { "type": "ESModule", "globs": ["**/*.mjs", "**/*.js"] }
+  ],
+  "observability": { "enabled": true },
+  "vars": {
+    "SUPABASE_URL": "https://c--c65e0a14-236e-493d-bb69-6c989fd2bac6-prod.lovable.cloud",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_FK9sh-a7REMzfebfLsXiYQ_VqgyhKd8",
+    "ADMIN_REQUIRE_MFA": "true",
+    "ADMIN_EXPORT_INCLUDE_PII": "false"
+  }
+}
