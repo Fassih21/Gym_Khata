@@ -29,4 +29,18 @@ describe("fees", () => {
     expect(expiryInfo("2026-10-28", "2026-10-25")).toMatchObject({ soon: true, expired: false });
     expect(expiryInfo("2026-10-24", "2026-10-25")?.expired).toBe(true);
   });
+  it("paid but membership expired => overdue (renewal due), sirf maujooda mahine mein", () => {
+    const cur = "2026-10-01";
+    // Ahmad: payment hai, expiry 26 Oct guzar chuki, aaj 28 Oct
+    expect(feeInfo("2026-10-05", cur, true, "2026-10-28", "2026-10-26")).toMatchObject({
+      status: "overdue", expired: true, daysLate: 2, dueDate: "2026-10-26", covered: false,
+    });
+    // expiry aaj ya aage ki => paid
+    expect(feeInfo("2026-10-05", cur, true, "2026-10-28", "2026-10-28")).toMatchObject({ status: "paid", expired: false });
+    expect(feeInfo("2026-10-05", cur, true, "2026-10-28", "2026-11-27")).toMatchObject({ status: "paid", expired: false });
+    // expiry set hi nahi => pehle jaisa
+    expect(feeInfo("2026-10-05", cur, true, "2026-10-28", null)).toMatchObject({ status: "paid", expired: false });
+    // purane mahine ki history nahi badalti
+    expect(feeInfo("2026-01-05", "2026-09-01", true, "2026-10-28", "2026-10-26")).toMatchObject({ status: "paid", expired: false });
+  });
 });

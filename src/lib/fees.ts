@@ -19,9 +19,11 @@ export interface FeeInfo {
   dueDate: string;
   daysLate: number; // > 0 only when overdue
   covered: boolean; // is mahine ki payment nahi, magar membership (expiry) abhi chal rahi hai
+  expired: boolean; // is mahine ki payment hai, magar membership expire ho chuki hai (renewal baqi)
 }
 
 /**
+ * overdue : (expired) is mahine ki payment hai magar membership_expires_on guzar chuki hai => renewal baqi
  * paid    : is mahine ki payment maujood, ya membership_expires_on aaj/aage ki hai (covered)
  * new     : join isi (ya aane wale) mahine mein hua, pehli fees abhi nahi aayi
  * overdue : due date guzar gayi aur fees nahi di
@@ -35,14 +37,18 @@ export function feeInfo(
   expiresOn?: string | null,
 ): FeeInfo {
   const dueDate = dueDateFor(joinDate, month);
-  if (paid) return { status: "paid", dueDate, daysLate: 0, covered: false };
+  // Membership expire ho chuki ho to sirf maujooda calendar mahine mein payment ke baawajood "overdue (renewal due)".
+  // Purane mahino ki history nahi badalti.
+  if (paid && expiresOn && expiresOn < today && month.slice(0, 7) === today.slice(0, 7))
+    return { status: "overdue", dueDate: expiresOn, daysLate: daysBetween(expiresOn, today), covered: false, expired: true };
+  if (paid) return { status: "paid", dueDate, daysLate: 0, covered: false, expired: false };
   // Quarterly/Yearly: expiry aaj ya aage ki hai to is mahine ki entry ke baghair bhi covered.
   // (Sirf current/guzishta mahine par; expiry guzar gayi ya plan nahi => normal rule.)
   if (expiresOn && expiresOn >= today && month.slice(0, 7) <= today.slice(0, 7))
-    return { status: "paid", dueDate, daysLate: 0, covered: true };
-  if (joinDate.slice(0, 7) >= month.slice(0, 7)) return { status: "new", dueDate, daysLate: 0, covered: false };
-  if (dueDate < today) return { status: "overdue", dueDate, daysLate: daysBetween(dueDate, today), covered: false };
-  return { status: "due", dueDate, daysLate: 0, covered: false };
+    return { status: "paid", dueDate, daysLate: 0, covered: true, expired: false };
+  if (joinDate.slice(0, 7) >= month.slice(0, 7)) return { status: "new", dueDate, daysLate: 0, covered: false, expired: false };
+  if (dueDate < today) return { status: "overdue", dueDate, daysLate: daysBetween(dueDate, today), covered: false, expired: false };
+  return { status: "due", dueDate, daysLate: 0, covered: false, expired: false };
 }
 
 export const FEE_BADGE: Record<FeeStatus, { label: string; className: string }> = {

@@ -23,7 +23,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { invalidate } from "@/lib/query";
 import { expectedMonthlyFee, FEE_BADGE, feeInfo } from "@/lib/fees";
 import { fetchAll } from "@/lib/fetch-all";
-import { addMonthsToDate, formatDate, formatPKR, monthKey, todayISO, whatsappLink } from "@/lib/format";
+import { addMonths, addMonthsToDate, formatDate, formatPKR, monthKey, monthLabel, todayISO, whatsappLink } from "@/lib/format";
 import { paymentSchema } from "@/lib/schemas";
 import type { Member, MemberPayment } from "@/lib/db-types";
 
@@ -47,6 +47,8 @@ function FeesPage() {
   const [note, setNote] = useState("");
   const [renew, setRenew] = useState(false);
   const [renewPlanId, setRenewPlanId] = useState("");
+  // Expired member ki renewal: payment agle mahine ki fees ke taur par save hoti hai (ek member, ek mahina, ek payment).
+  const [payMonth, setPayMonth] = useState<string | null>(null);
   const plansQ = usePlans();
   const [formError, setFormError] = useState<string | null>(null);
   const [undoPayment, setUndoPayment] = useState<MemberPayment | null>(null);
@@ -92,15 +94,16 @@ function FeesPage() {
     mutationFn: async (member: Member) => {
       const parsed = paymentSchema.safeParse({ amount, paid_on: paidOn, note });
       if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Form check karein");
+      if (payMonth && !(renew && renewPlan)) throw new Error("Renew ke liye membership plan chunein (plan na ho to pehle Plans banayein).");
       const { error } = await supabase.from("member_payments").insert({
         member_id: member.id,
-        month,
+        month: payMonth ?? month,
         amount_paid: Number(parsed.data.amount),
         paid_on: parsed.data.paid_on,
         note: note || null,
       });
       if (error) {
-        if (error.code === "23505") throw new Error("Is mahine ki fees pehle hi mark ho chuki hai.");
+        if (error.code === "23505") throw new Error("Us mahine ki fees pehle hi mark ho chuki hai.");
         throw error;
       }
       if (renew && renewPlan) {
@@ -113,6 +116,7 @@ function FeesPage() {
     },
     onSuccess: () => {
       setPayFor(null);
+      setPayMonth(null);
       setFormError(null);
       void invalidate.payments(qc);
       void invalidate.members(qc);
@@ -144,7 +148,10 @@ function FeesPage() {
   const payments = paymentsQ.data ?? [];
   const byMember = new Map(payments.map((p) => [p.member_id, p]));
   const infoOf = (m: Member) => feeInfo(m.join_date, month, byMember.has(m.id), todayISO(), m.membership_expires_on);
-  const unpaid = members.filter((m) => !byMember.has(m.id) && !infoOf(m).covered);
+  const unpaid = members.filter((m) => {
+    const fi = infoOf(m);
+    return fi.expired || (!byMember.has(m.id) && !fi.covered);
+  });
   const overdue = members.filter((m) => infoOf(m).status === "overdue");
   const shown = filter === "overdue" ? overdue : filter === "unpaid" ? unpaid : members;
 
@@ -184,7 +191,7 @@ function FeesPage() {
                     {fi.status === "overdue" && <span className="font-semibold text-destructive"> · {fi.daysLate} din late</span>}
                   </p>
                 </div>
-                {payment ? (
+                {payment && !fi.expired ? (
                   <div className="flex items-center gap-2">
                     <Badge className="gap-1 bg-success/15 text-success">
                       <CheckCircle2 className="size-3.5" /> {formatPKR(payment.amount_paid)}
@@ -196,10 +203,10 @@ function FeesPage() {
                 ) : (
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className={`gap-1 ${FEE_BADGE[fi.status].className}`}>
-                      {fi.covered ? <CheckCircle2 className="size-3.5" /> : <XCircle className="size-3.5" />} {fi.covered ? "Covered" : fi.status === "overdue" ? "Overdue" : fi.status === "new" ? "New · Unpaid" : "Due"}
+                      {fi.covered ? <CheckCircle2 className="size-3.5" /> : <XCircle className="size-3.5" />} {fi.covered ? "Covered" : fi.expired ? "Expired" : fi.status === "overdue" ? "Overdue" : fi.status === "new" ? "New · Unpaid" : "Due"}
                     </Badge>
                     <a
-                      href={whatsappLink(m.phone, `Assalam o alaikum ${m.name}! Is mahine ki fees baqi hai. Please jald ada karein. — GymKhata`)}
+                      href={whatsappLink(m.phone, fi.expired ? `Assalam o alaikum ${m.name}! Aapki membership expire ho chuki hai. Please jald renew karwa lein. — GymKhata` : `Assalam o alaikum ${m.name}! Is mahine ki fees baqi hai. Please jald ada karein. — GymKhata`)}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -209,10 +216,20 @@ function FeesPage() {
                     </a>
                     <Button size="sm" onClick={() => {
                       const own = (plansQ.data ?? []).find((p) => p.id === m.plan_id);
+                      const planId = own?.active ? own.id : activePlans[0]?.id ?? "";
                       setPayFor(m); setAmount(String(expectedMonthlyFee(own))); setPaidOn(todayISO()); setNote(""); setFormError(null);
-                      setRenew(false); setRenewPlanId(own?.active ? own.id : activePlans[0]?.id ?? "");
+                      setRenewPlanId(planId);
+                      if (fi.expired) {
+                        setPayMonth(addMonths(month, 1));
+                        setRenew(true);
+                        const rp = activePlans.find((p) => p.id === planId);
+                        if (rp) setAmount(String(rp.price));
+                      } else {
+                        setPayMonth(null);
+                        setRenew(false);
+                      }
                     }}>
-                      Mark paid
+                      {fi.expired ? "Renew" : "Mark paid"}
                     </Button>
                   </div>
                 )}
@@ -226,9 +243,14 @@ function FeesPage() {
       <Dialog open={!!payFor} onOpenChange={(o) => !o && setPayFor(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Fees jama karein — {payFor?.name}</DialogTitle>
+            <DialogTitle>{payMonth ? "Membership renew" : "Fees jama karein"} — {payFor?.name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            {payMonth && (
+              <p className="rounded-lg bg-muted p-2 text-xs text-muted-foreground">
+                Membership expire ho chuki hai. Ye payment <b>{monthLabel(payMonth)}</b> ki fees ke taur par save hogi.
+              </p>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="fee-amount">Amount (Rs)</Label>
               <Input id="fee-amount" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-11" />
@@ -245,6 +267,7 @@ function FeesPage() {
               <div className="space-y-2 rounded-lg border border-border p-3">
                 <label className="flex items-center gap-2 text-sm font-medium">
                   <Checkbox
+                    disabled={!!payMonth}
                     checked={renew}
                     onCheckedChange={(v) => {
                       setRenew(v === true);

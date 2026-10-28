@@ -207,7 +207,10 @@ function Dashboard() {
   const net = revenue - (expenseTotal + salaryTotal);
   const activeMembers = members.filter((m) => m.status === "active").length;
   const paidIds = new Set(monthPayments.map((p) => p.member_id));
-  const unpaidCount = activeMembers - members.filter((m) => m.status === "active" && paidIds.has(m.id)).length;
+  // Unpaid = payment nahi hui, YA payment hui magar membership expire ho chuki (sirf maujooda mahine mein).
+  const paidActive = members.filter((m) => m.status === "active" && paidIds.has(m.id));
+  const expiredPaid = paidActive.filter((m) => feeInfo(m.join_date, month, true, undefined, m.membership_expires_on).expired).length;
+  const unpaidCount = activeMembers - paidActive.length + expiredPaid;
   const paidSalaryIds = new Set(salaries.filter((s) => s.month === month).map((s) => s.employee_id));
   const salariesPending = employees.filter((e) => !paidSalaryIds.has(e.id)).length;
 
