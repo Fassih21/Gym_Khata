@@ -3,6 +3,7 @@ import { LogOut } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { ExportData } from "@/components/export-data";
+import { ChangePassword } from "@/components/change-password";
 import { PageHeader } from "@/components/page";
 import { PlansManager } from "@/components/plans-manager";
 import { Button } from "@/components/ui/button";
@@ -35,7 +36,7 @@ function SettingsPage() {
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">Subscription khatam hoti hai</p>
-          <p className="mt-0.5 font-semibold">{formatDate(gym?.subscription_ends_on)}</p>
+          <p className="mt-0.5 font-semibold">{(gym?.subscription_ends_on ?? "") >= "2099" ? "Unlimited" : formatDate(gym?.subscription_ends_on)}</p>
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">Subscription ka status</p>
@@ -45,6 +46,7 @@ function SettingsPage() {
 
       <PlansManager />
       <ExportData />
+      <ChangePassword />
 
       <Button variant="destructive" className="mt-6" onClick={() => void signOutEverywhere(qc)}>
         <LogOut className="size-4" /> Logout

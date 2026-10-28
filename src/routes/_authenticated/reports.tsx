@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Download } from "lucide-react";
 import { useState } from "react";
 
+import { useEverPaid } from "@/hooks/use-ever-paid";
 import { MonthSelect } from "@/components/month-select";
 import { CenterSpinner, ErrorState, PageHeader } from "@/components/page";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ function ReportsPage() {
     queryKey: ["report-payments", month],
     queryFn: async () => {
       return fetchAll<MemberPayment & { member: { name: string } | null }>((from, to) =>
-        supabase.from("member_payments").select("id, member_id, month, amount_paid, paid_on, note, member:members(name)").eq("month", month).order("id").range(from, to),
+        supabase.from("member_payments").select("id, member_id, month, amount_paid, paid_on, note, member:members(name)").is("voided_at", null).eq("month", month).order("id").range(from, to),
       );
     },
   });
@@ -59,7 +60,8 @@ function ReportsPage() {
     },
   });
 
-  const loading = paymentsQ.isPending || salariesQ.isPending || expensesQ.isPending || membersQ.isPending;
+  const everQ = useEverPaid();
+  const loading = everQ.isPending || paymentsQ.isPending || salariesQ.isPending || expensesQ.isPending || membersQ.isPending;
   if (loading) return <CenterSpinner />;
   const error = paymentsQ.error || salariesQ.error || expensesQ.error || membersQ.error;
   if (error)
@@ -67,15 +69,16 @@ function ReportsPage() {
 
   const payments = paymentsQ.data ?? [];
   const salaries = salariesQ.data ?? [];
-  const expenses = expensesQ.data ?? [];
-  const members = membersQ.data ?? [];
+  const expenses = (expensesQ.data ?? []).filter((e) => e.category !== "Salaries"); // salary alag se aati hai (double count nahi)
+  const ever = everQ.data ?? new Set<string>();
+  const members = (membersQ.data ?? []).filter((m) => m.join_date.slice(0, 7) <= month.slice(0, 7));
 
   const revenue = payments.reduce((s, p) => s + toNumber(p.amount_paid), 0);
   const salaryTotal = salaries.reduce((s, r) => s + toNumber(r.amount_paid), 0);
   const expenseTotal = expenses.reduce((s, e) => s + toNumber(e.amount), 0) + salaryTotal;
   const net = revenue - expenseTotal;
   const paidIds = new Set(payments.map((p) => p.member_id));
-  const dues = members.filter((m) => !paidIds.has(m.id) && !feeInfo(m.join_date, month, false, todayISO(), m.membership_expires_on).covered);
+  const dues = members.filter((m) => feeInfo(m.join_date, month, paidIds.has(m.id), todayISO(), m.membership_expires_on, ever.has(m.id)).status !== "paid");
 
   const rows = [
     { label: "Fees collected", value: formatPKR(revenue) },

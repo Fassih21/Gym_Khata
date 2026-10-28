@@ -10,15 +10,14 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useGym } from "@/hooks/use-gym";
+import { useEverPaid } from "@/hooks/use-ever-paid";
 import { usePlans } from "@/hooks/use-plans";
-import { initials, seedPhotoUrls, useSignedUrl } from "@/hooks/use-photo";
+import { initials } from "@/hooks/use-photo";
 import { supabase } from "@/integrations/supabase/client";
 import { invalidate } from "@/lib/query";
 import { expiryInfo, FEE_BADGE, feeInfo } from "@/lib/fees";
 import { fetchAll } from "@/lib/fetch-all";
 import { addMonthsToDate, formatDate, monthKey, todayISO } from "@/lib/format";
-import { uploadPhoto } from "@/lib/photo";
 import { memberSchema } from "@/lib/schemas";
 import type { Member, MemberPayment } from "@/lib/db-types";
 
@@ -35,10 +34,7 @@ export const Route = createFileRoute("/_authenticated/members")({
 const PAGE_SIZE = 20;
 
 function Avatar({ member }: { member: Member }) {
-  const { data: url } = useSignedUrl(member.photo_path);
-  return url ? (
-    <img src={url} alt={member.name} className="size-10 rounded-lg object-cover" />
-  ) : (
+  return (
     <span className="flex size-10 items-center justify-center rounded-lg bg-secondary text-sm font-bold text-secondary-foreground">
       {initials(member.name)}
     </span>
@@ -47,7 +43,6 @@ function Avatar({ member }: { member: Member }) {
 
 function MembersPage() {
   const qc = useQueryClient();
-  const { gym } = useGym();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [showInactive, setShowInactive] = useState(false);
@@ -62,10 +57,10 @@ function MembersPage() {
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [joinDate, setJoinDate] = useState(todayISO());
-  const [photo, setPhoto] = useState<File | null>(null);
   const [planId, setPlanId] = useState("none");
   const [expiresOn, setExpiresOn] = useState("");
   const plansQ = usePlans();
+  const everQ = useEverPaid();
 
   const membersQ = useQuery({
     queryKey: ["members"],
@@ -73,13 +68,12 @@ function MembersPage() {
       const data = await fetchAll<Member>((from, to) =>
         supabase
           .from("members")
-          .select("id, name, phone, address, photo_path, join_date, status, notes, plan_id, membership_expires_on")
+          .select("id, name, phone, address, join_date, status, notes, plan_id, membership_expires_on")
           .is("deleted_at", null)
           .order("name")
           .order("id")
           .range(from, to),
       );
-      await seedPhotoUrls(qc, data.slice(0, 100).map((m) => m.photo_path));
       return data as Member[];
     },
   });
@@ -89,7 +83,7 @@ function MembersPage() {
     queryKey: ["fees-payments", month],
     queryFn: async () => {
       return fetchAll<MemberPayment>((from, to) =>
-        supabase.from("member_payments").select("id, member_id, month, amount_paid, paid_on, note").eq("month", month).order("id").range(from, to),
+        supabase.from("member_payments").select("id, member_id, month, amount_paid, paid_on, note").is("voided_at", null).eq("month", month).order("id").range(from, to),
       );
     },
   });
@@ -104,7 +98,6 @@ function MembersPage() {
     setFeeThisMonth("");
     setPlanId(member?.plan_id ?? "none");
     setExpiresOn(member?.membership_expires_on ?? "");
-    setPhoto(null);
     setFormError(null);
     setFormOpen(true);
   };
@@ -118,11 +111,6 @@ function MembersPage() {
       });
       if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Form check karein");
       if (expiresOn && expiresOn < parsed.data.join_date) throw new Error("Expiry date join date se pehle nahi ho sakti");
-      let photoPath: string | null = null;
-      if (photo) {
-        if (!gym) throw new Error("Gym load nahi hua");
-        photoPath = await uploadPhoto(photo, gym.id, "members");
-      }
       const payload = {
         name: parsed.data.name,
         phone: parsed.data.phone,
@@ -130,7 +118,6 @@ function MembersPage() {
         join_date: parsed.data.join_date,
         plan_id: planId === "none" ? null : planId,
         membership_expires_on: expiresOn || null,
-        ...(photoPath ? { photo_path: photoPath } : {}),
       };
       if (editing) {
         const { error } = await supabase.from("members").update(payload).eq("id", editing.id);
@@ -144,7 +131,11 @@ function MembersPage() {
             month: monthKey(),
             amount_paid: Number(feeThisMonth.replace(/,/g, "")),
           });
-          if (payError) throw payError;
+          if (payError) {
+            // Adhura member na rahe: payment fail ho to member wapas hata do (warna retry par duplicate banta).
+            await supabase.from("members").delete().eq("id", data.id);
+            throw payError;
+          }
         }
       }
     },
@@ -159,7 +150,7 @@ function MembersPage() {
 
   const deactivate = useMutation({
     mutationFn: async (member: Member) => {
-      const { error } = await supabase.from("members").update({ deleted_at: new Date().toISOString() }).eq("id", member.id);
+      const { error } = await supabase.from("members").update({ status: "inactive" }).eq("id", member.id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -168,10 +159,19 @@ function MembersPage() {
     },
   });
 
+  const reactivate = useMutation({
+    mutationFn: async (member: Member) => {
+      const { error } = await supabase.from("members").update({ status: "active" }).eq("id", member.id);
+      if (error) throw error;
+    },
+    onSuccess: () => void invalidate.members(qc),
+  });
+
   const onPlanChange = (id: string) => {
     setPlanId(id);
     const plan = plansQ.data?.find((p) => p.id === id);
-    if (plan) setExpiresOn(addMonthsToDate(editing ? todayISO() : joinDate, plan.duration_months));
+    // Sirf naye member ke liye expiry khud banti hai; maujooda member ki expiry sirf Fees page ke "Renew" se badalti hai.
+    if (plan && !editing) setExpiresOn(addMonthsToDate(joinDate, plan.duration_months));
   };
   const planOptions = (plansQ.data ?? []).filter((p) => p.active || p.id === editing?.plan_id);
 
@@ -226,7 +226,7 @@ function MembersPage() {
                 </p>
               </div>
               {m.status === "active" && !paidQ.isPending && (() => {
-                const fi = feeInfo(m.join_date, month, paidIds.has(m.id), todayISO(), m.membership_expires_on);
+                const fi = feeInfo(m.join_date, month, paidIds.has(m.id), todayISO(), m.membership_expires_on, everQ.data?.has(m.id) ?? false);
                 const b = FEE_BADGE[fi.status];
                 return (
                   <Badge variant="secondary" className={b.className}>
@@ -239,7 +239,11 @@ function MembersPage() {
               </Badge>
               <div className="flex gap-1">
                 <Button variant="ghost" size="icon" aria-label="Edit" onClick={() => openForm(m)}><Pencil className="size-4" /></Button>
-                <Button variant="ghost" size="icon" aria-label="Deactivate" onClick={() => setDeleting(m)}><Trash2 className="size-4 text-destructive" /></Button>
+                {m.status === "active" ? (
+                  <Button variant="ghost" size="icon" aria-label="Deactivate" onClick={() => setDeleting(m)}><Trash2 className="size-4 text-destructive" /></Button>
+                ) : (
+                  <Button variant="outline" size="sm" disabled={reactivate.isPending} onClick={() => reactivate.mutate(m)}>Dobara active</Button>
+                )}
               </div>
             </div>
           ))}
@@ -292,7 +296,8 @@ function MembersPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="m-expiry">Expiry date</Label>
-                <Input id="m-expiry" type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} className="h-11" />
+                <Input id="m-expiry" type="date" value={expiresOn} onChange={(e) => setExpiresOn(e.target.value)} disabled={!!editing} className="h-11" />
+                {editing && <p className="text-xs text-muted-foreground">Expiry sirf Fees page ke "Renew" se badlegi.</p>}
               </div>
             </div>
             {!editing && (
@@ -301,10 +306,6 @@ function MembersPage() {
                 <Input id="m-fee" inputMode="numeric" value={feeThisMonth} onChange={(e) => setFeeThisMonth(e.target.value)} placeholder="3000" className="h-11" />
               </div>
             )}
-            <div className="space-y-1.5">
-              <Label htmlFor="m-photo">Photo (JPG/PNG/WebP)</Label>
-              <Input id="m-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => setPhoto(e.target.files?.[0] ?? null)} className="file:mr-3" />
-            </div>
             {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
           </div>
           <DialogFooter>
@@ -318,7 +319,7 @@ function MembersPage() {
       <Dialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>{deleting?.name} ko deactivate karein?</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">Member list se hat jayega, magar purana record mehfooz rahega. Inactive members ki fees ki zarurat nahi paregi.</p>
+          <p className="text-sm text-muted-foreground">Member inactive ho jayega aur fees/dashboard se hat jayega. "Inactive bhi dikhayen" se wapas dikhega aur dobara active kiya ja sakta hai. Purana record mehfooz rahega.</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleting(null)}>Rok dein</Button>
             <Button variant="destructive" disabled={deactivate.isPending} onClick={() => deleting && deactivate.mutate(deleting)}>

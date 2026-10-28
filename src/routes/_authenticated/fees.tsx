@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { usePlans } from "@/hooks/use-plans";
 import { supabase } from "@/integrations/supabase/client";
 import { invalidate } from "@/lib/query";
+import { useEverPaid } from "@/hooks/use-ever-paid";
 import { expectedMonthlyFee, FEE_BADGE, feeInfo } from "@/lib/fees";
 import { fetchAll } from "@/lib/fetch-all";
 import { addMonths, addMonthsToDate, formatDate, formatPKR, monthKey, monthLabel, todayISO, whatsappLink } from "@/lib/format";
@@ -50,6 +51,7 @@ function FeesPage() {
   // Expired member ki renewal: payment agle mahine ki fees ke taur par save hoti hai (ek member, ek mahina, ek payment).
   const [payMonth, setPayMonth] = useState<string | null>(null);
   const plansQ = usePlans();
+  const everQ = useEverPaid();
   const [formError, setFormError] = useState<string | null>(null);
   const [undoPayment, setUndoPayment] = useState<MemberPayment | null>(null);
   const [undoingFor, setUndoingFor] = useState<Member | null>(null);
@@ -73,7 +75,7 @@ function FeesPage() {
     queryKey: ["fees-payments", month],
     queryFn: async () => {
       return fetchAll<MemberPayment>((from, to) =>
-        supabase.from("member_payments").select("id, member_id, month, amount_paid, paid_on, note").eq("month", month).order("id").range(from, to),
+        supabase.from("member_payments").select("id, member_id, month, amount_paid, paid_on, note").is("voided_at", null).eq("month", month).order("id").range(from, to),
       );
     },
   });
@@ -129,7 +131,7 @@ function FeesPage() {
 
   const undo = useMutation({
     mutationFn: async (payment: MemberPayment) => {
-      const { error } = await supabase.from("member_payments").delete().eq("id", payment.id);
+      const { error } = await supabase.from("member_payments").update({ voided_at: new Date().toISOString(), void_reason: "Undo (Fees page)" }).eq("id", payment.id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -140,18 +142,17 @@ function FeesPage() {
     onError: () => setFormError("Undo nahi hua, dobara koshish karein"),
   });
 
-  const loading = membersQ.isPending || paymentsQ.isPending;
+  const loading = membersQ.isPending || paymentsQ.isPending || everQ.isPending;
   if (loading) return <CenterSpinner />;
   if (membersQ.error || paymentsQ.error) return <ErrorState onRetry={() => { void membersQ.refetch(); void paymentsQ.refetch(); }} />;
 
-  const members = membersQ.data ?? [];
+  const ever = everQ.data ?? new Set<string>();
+  // Jo member is mahine se baad join hua, us mahine ki list mein nahi aata.
+  const members = (membersQ.data ?? []).filter((m) => m.join_date.slice(0, 7) <= month.slice(0, 7));
   const payments = paymentsQ.data ?? [];
   const byMember = new Map(payments.map((p) => [p.member_id, p]));
-  const infoOf = (m: Member) => feeInfo(m.join_date, month, byMember.has(m.id), todayISO(), m.membership_expires_on);
-  const unpaid = members.filter((m) => {
-    const fi = infoOf(m);
-    return fi.expired || (!byMember.has(m.id) && !fi.covered);
-  });
+  const infoOf = (m: Member) => feeInfo(m.join_date, month, byMember.has(m.id), todayISO(), m.membership_expires_on, ever.has(m.id));
+  const unpaid = members.filter((m) => infoOf(m).status !== "paid");
   const overdue = members.filter((m) => infoOf(m).status === "overdue");
   const shown = filter === "overdue" ? overdue : filter === "unpaid" ? unpaid : members;
 

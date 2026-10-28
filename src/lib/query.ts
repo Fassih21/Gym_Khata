@@ -6,7 +6,7 @@ const run = (qc: QueryClient, keys: string[]) =>
 
 export const invalidate = {
   members: (qc: QueryClient) => run(qc, ["members", "fees-members", "members-counts", "report-members"]),
-  payments: (qc: QueryClient) => run(qc, ["fees-payments", "payments6", "report-payments"]),
+  payments: (qc: QueryClient) => run(qc, ["fees-payments", "payments6", "report-payments", "ever-paid"]),
   expenses: (qc: QueryClient) => run(qc, ["expenses", "expenses6", "report-expenses"]),
   employees: (qc: QueryClient) => run(qc, ["employees", "attendance-employees", "employees-counts"]),
   plans: (qc: QueryClient) => run(qc, ["plans"]),

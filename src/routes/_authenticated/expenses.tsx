@@ -98,7 +98,7 @@ function ExpensesPage() {
   if (expensesQ.error) return <ErrorState onRetry={() => void expensesQ.refetch()} />;
 
   const expenses = expensesQ.data ?? [];
-  const total = expenses.reduce((s, e) => s + toNumber(e.amount), 0);
+  const total = expenses.filter((e) => e.category !== "Salaries").reduce((s, e) => s + toNumber(e.amount), 0);
 
   return (
     <div>
@@ -139,7 +139,7 @@ function ExpensesPage() {
                 <Label>Category</Label>
                 <Select value={category} onValueChange={setCategory}>
                   <SelectTrigger className="h-11 w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>{EXPENSE_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                  <SelectContent>{EXPENSE_CATEGORIES.filter((c) => c !== "Salaries" || category === "Salaries").map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5"><Label htmlFor="x-amount">Amount (Rs)</Label><Input id="x-amount" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-11" /></div>

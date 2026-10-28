@@ -230,6 +230,9 @@ export type Database = {
           note: string | null
           paid_on: string
           updated_at: string
+          voided_at: string | null
+          voided_by: string | null
+          void_reason: string | null
         }
         Insert: {
           amount_paid: number
@@ -242,6 +245,9 @@ export type Database = {
           note?: string | null
           paid_on?: string
           updated_at?: string
+          voided_at?: string | null
+          voided_by?: string | null
+          void_reason?: string | null
         }
         Update: {
           amount_paid?: number
@@ -254,6 +260,9 @@ export type Database = {
           note?: string | null
           paid_on?: string
           updated_at?: string
+          voided_at?: string | null
+          voided_by?: string | null
+          void_reason?: string | null
         }
         Relationships: [
           {
@@ -437,6 +446,8 @@ export type Database = {
     Functions: {
       current_gym_id: { Args: never; Returns: string }
       is_gym_active: { Args: never; Returns: boolean }
+      members_with_payments: { Args: never; Returns: string[] }
+      pk_today: { Args: never; Returns: string }
     }
     Enums: {
       [_ in never]: never
