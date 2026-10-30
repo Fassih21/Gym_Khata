@@ -146,12 +146,12 @@ function FeesPage() {
   if (loading) return <CenterSpinner />;
   if (membersQ.error || paymentsQ.error) return <ErrorState onRetry={() => { void membersQ.refetch(); void paymentsQ.refetch(); }} />;
 
-  const ever = everQ.data ?? new Set<string>();
+  const ever = everQ.data ?? new Map<string, string>();
   // Jo member is mahine se baad join hua, us mahine ki list mein nahi aata.
   const members = (membersQ.data ?? []).filter((m) => m.join_date.slice(0, 7) <= month.slice(0, 7));
   const payments = paymentsQ.data ?? [];
   const byMember = new Map(payments.map((p) => [p.member_id, p]));
-  const infoOf = (m: Member) => feeInfo(m.join_date, month, byMember.has(m.id), todayISO(), m.membership_expires_on, ever.has(m.id));
+  const infoOf = (m: Member) => feeInfo(m.join_date, month, byMember.has(m.id), todayISO(), m.membership_expires_on, ever.get(m.id) ?? null);
   const unpaid = members.filter((m) => infoOf(m).status !== "paid");
   const overdue = members.filter((m) => infoOf(m).status === "overdue");
   const shown = filter === "overdue" ? overdue : filter === "unpaid" ? unpaid : members;
@@ -227,7 +227,9 @@ function FeesPage() {
                         if (rp) setAmount(String(rp.price));
                       } else {
                         setPayMonth(null);
-                        setRenew(false);
+                        const auto = !!own?.active && month === monthKey();
+                        setRenew(auto);
+                        if (auto && own) setAmount(String(own.price));
                       }
                     }}>
                       {fi.expired ? "Renew" : "Mark paid"}

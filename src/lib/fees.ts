@@ -35,7 +35,7 @@ export function feeInfo(
   paid: boolean,
   today: string = todayISO(),
   expiresOn?: string | null,
-  everPaid = false, // member ki kam az kam ek live payment hai? (expiry ka saboot)
+  firstPaidMonth: string | null = null, // member ki pehli live payment ka mahina (YYYY-MM-01); coverage us se pehle nahi
 ): FeeInfo {
   const dueDate = dueDateFor(joinDate, month);
   // Membership expire ho chuki ho to sirf maujooda calendar mahine mein payment ke baawajood "overdue (renewal due)".
@@ -46,7 +46,7 @@ export function feeInfo(
   // Quarterly/Yearly: expiry aaj ya aage ki hai to is mahine ki entry ke baghair bhi covered.
   // (Sirf current/guzishta mahine par; expiry guzar gayi ya plan nahi => normal rule.)
   // Expiry tabhi maani jati hai jab member ne kabhi payment di ho (sirf plan chun lene se free membership nahi milti).
-  if (everPaid && expiresOn && expiresOn >= today && month.slice(0, 7) <= today.slice(0, 7))
+  if (firstPaidMonth && month.slice(0, 7) >= firstPaidMonth.slice(0, 7) && expiresOn && expiresOn >= today && month.slice(0, 7) <= today.slice(0, 7))
     return { status: "paid", dueDate, daysLate: 0, covered: true, expired: false };
   if (joinDate.slice(0, 7) >= month.slice(0, 7)) return { status: "new", dueDate, daysLate: 0, covered: false, expired: false };
   if (dueDate < today) return { status: "overdue", dueDate, daysLate: daysBetween(dueDate, today), covered: false, expired: false };

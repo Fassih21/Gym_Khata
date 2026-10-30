@@ -226,7 +226,7 @@ function MembersPage() {
                 </p>
               </div>
               {m.status === "active" && !paidQ.isPending && (() => {
-                const fi = feeInfo(m.join_date, month, paidIds.has(m.id), todayISO(), m.membership_expires_on, everQ.data?.has(m.id) ?? false);
+                const fi = feeInfo(m.join_date, month, paidIds.has(m.id), todayISO(), m.membership_expires_on, everQ.data?.get(m.id) ?? null);
                 const b = FEE_BADGE[fi.status];
                 return (
                   <Badge variant="secondary" className={b.className}>
