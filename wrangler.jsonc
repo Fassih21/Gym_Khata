@@ -18,5 +18,13 @@
     "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_FK9sh-a7REMzfebfLsXiYQ_VqgyhKd8",
     "ADMIN_REQUIRE_MFA": "true",
     "ADMIN_EXPORT_INCLUDE_PII": "false"
+  },
+  "previews": {
+    "vars": {
+      "SUPABASE_URL": "https://c--c65e0a14-236e-493d-bb69-6c989fd2bac6-prod.lovable.cloud",
+      "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_FK9sh-a7REMzfebfLsXiYQ_VqgyhKd8",
+      "ADMIN_REQUIRE_MFA": "true",
+      "ADMIN_EXPORT_INCLUDE_PII": "false"
+    }
   }
 }
