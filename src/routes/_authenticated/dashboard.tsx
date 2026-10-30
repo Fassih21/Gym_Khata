@@ -208,13 +208,13 @@ function Dashboard() {
   const expenseTotal = monthExpenses.reduce((s, e) => s + toNumber(e.amount), 0);
   const salaryTotal = salaries.filter((s) => s.month === month).reduce((s, r) => s + toNumber(r.amount_paid), 0);
   const net = revenue - (expenseTotal + salaryTotal);
-  const ever = everQ.data ?? new Set<string>();
+  const ever = everQ.data ?? new Map<string, string>();
   const paidIds = new Set(monthPayments.map((p) => p.member_id));
   // Selected mahine mein jo member maujood tha (us mahine ya pehle join hua) wahi ginti mein; fees status wahi jo Fees page par.
   const activeList = members.filter((m) => m.status === "active" && m.join_date.slice(0, 7) <= month.slice(0, 7));
   const activeMembers = activeList.length;
   const unpaidCount = activeList.filter(
-    (m) => feeInfo(m.join_date, month, paidIds.has(m.id), undefined, m.membership_expires_on, ever.has(m.id)).status !== "paid",
+    (m) => feeInfo(m.join_date, month, paidIds.has(m.id), undefined, m.membership_expires_on, ever.get(m.id) ?? null).status !== "paid",
   ).length;
   const paidSalaryIds = new Set(salaries.filter((s) => s.month === month).map((s) => s.employee_id));
   const salariesPending = employees.filter((e) => !paidSalaryIds.has(e.id)).length;
@@ -225,7 +225,7 @@ function Dashboard() {
   [...payments].sort((a, b) => a.month.localeCompare(b.month)).forEach((p) => lastPaid.set(p.member_id, toNumber(p.amount_paid)));
   const paidNow = new Set(payments.filter((p) => p.month === nowMonth).map((p) => p.member_id));
   const overdueMembers = members.filter(
-    (m) => m.status === "active" && feeInfo(m.join_date, nowMonth, paidNow.has(m.id), undefined, m.membership_expires_on, ever.has(m.id)).status === "overdue",
+    (m) => m.status === "active" && feeInfo(m.join_date, nowMonth, paidNow.has(m.id), undefined, m.membership_expires_on, ever.get(m.id) ?? null).status === "overdue",
   );
   const planById = new Map((plansQ.data ?? []).map((p) => [p.id, p]));
   const overdueAmount = overdueMembers.reduce(
