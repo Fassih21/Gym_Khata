@@ -55,6 +55,7 @@ function FeesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [undoPayment, setUndoPayment] = useState<MemberPayment | null>(null);
   const [undoingFor, setUndoingFor] = useState<Member | null>(null);
+  const [rollback, setRollback] = useState(true);
 
   const membersQ = useQuery({
     queryKey: ["fees-members"],
@@ -130,14 +131,19 @@ function FeesPage() {
   });
 
   const undo = useMutation({
-    mutationFn: async (payment: MemberPayment) => {
+    mutationFn: async ({ payment, expiry }: { payment: MemberPayment; expiry: string }) => {
       const { error } = await supabase.from("member_payments").update({ voided_at: new Date().toISOString(), void_reason: "Undo (Fees page)" }).eq("id", payment.id);
       if (error) throw error;
+      if (expiry && payment.member_id) {
+        const { error: e2 } = await supabase.from("members").update({ membership_expires_on: expiry }).eq("id", payment.member_id);
+        if (e2) throw e2;
+      }
     },
     onSuccess: () => {
       setUndoPayment(null);
       setUndoingFor(null);
       void invalidate.payments(qc);
+      void invalidate.members(qc);
     },
     onError: () => setFormError("Undo nahi hua, dobara koshish karein"),
   });
@@ -151,6 +157,12 @@ function FeesPage() {
   const members = (membersQ.data ?? []).filter((m) => m.join_date.slice(0, 7) <= month.slice(0, 7));
   const payments = paymentsQ.data ?? [];
   const byMember = new Map(payments.map((p) => [p.member_id, p]));
+  // Undo: agar payment ne expiry aage barhai thi to wapas karne ka option
+  const undoPlan = (plansQ.data ?? []).find((p) => p.id === undoingFor?.plan_id);
+  const rollbackTo =
+    undoPayment && undoingFor?.membership_expires_on && undoPlan && undoingFor.membership_expires_on >= addMonthsToDate(undoPayment.paid_on, undoPlan.duration_months)
+      ? addMonthsToDate(undoingFor.membership_expires_on, -undoPlan.duration_months)
+      : "";
   const infoOf = (m: Member) => feeInfo(m.join_date, month, byMember.has(m.id), todayISO(), m.membership_expires_on, ever.get(m.id) ?? null);
   const unpaid = members.filter((m) => infoOf(m).status !== "paid");
   const overdue = members.filter((m) => infoOf(m).status === "overdue");
@@ -197,7 +209,7 @@ function FeesPage() {
                     <Badge className="gap-1 bg-success/15 text-success">
                       <CheckCircle2 className="size-3.5" /> {formatPKR(payment.amount_paid)}
                     </Badge>
-                    <Button variant="ghost" size="sm" onClick={() => { setUndoPayment(payment); setUndoingFor(m); }}>
+                    <Button variant="ghost" size="sm" onClick={() => { setUndoPayment(payment); setUndoingFor(m); setRollback(true); }}>
                       <Undo2 className="size-4" /> Undo
                     </Button>
                   </div>
@@ -314,9 +326,15 @@ function FeesPage() {
           <p className="text-sm text-muted-foreground">
             {undoingFor?.name} ki {formatPKR(undoPayment?.amount_paid)} ki entry hat jayegi. Ghalat entry thi to theek hai.
           </p>
+          {rollbackTo && (
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox checked={rollback} onCheckedChange={(v) => setRollback(v === true)} />
+              <span>Membership expiry bhi wapas karein: {formatDate(undoingFor?.membership_expires_on ?? "")} → <b>{formatDate(rollbackTo)}</b></span>
+            </label>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setUndoPayment(null)}>Rok dein</Button>
-            <Button variant="destructive" disabled={undo.isPending} onClick={() => undoPayment && undo.mutate(undoPayment)}>
+            <Button variant="destructive" disabled={undo.isPending} onClick={() => undoPayment && undo.mutate({ payment: undoPayment, expiry: rollback ? rollbackTo : "" })}>
               {undo.isPending ? "Removing…" : "Haan, undo karein"}
             </Button>
           </DialogFooter>
