@@ -117,7 +117,14 @@ function MembersPage() {
         address: parsed.data.address || null,
         join_date: parsed.data.join_date,
         plan_id: planId === "none" ? null : planId,
-        membership_expires_on: expiresOn || null,
+        membership_expires_on:
+          expiresOn ||
+          (!editing && feeThisMonth && planId !== "none"
+            ? addMonthsToDate(
+                parsed.data.join_date,
+                plansQ.data?.find((p) => p.id === planId)?.duration_months ?? 1,
+              )
+            : null),
       };
       if (editing) {
         const { error } = await supabase.from("members").update(payload).eq("id", editing.id);
@@ -169,9 +176,8 @@ function MembersPage() {
 
   const onPlanChange = (id: string) => {
     setPlanId(id);
-    const plan = plansQ.data?.find((p) => p.id === id);
-    // Sirf naye member ke liye expiry khud banti hai; maujooda member ki expiry sirf Fees page ke "Renew" se badalti hai.
-    if (plan && !editing) setExpiresOn(addMonthsToDate(joinDate, plan.duration_months));
+    // Expiry ab plan chunte hi nahi banti. Wo tab banti hai jab fees saath bhari jaye (save mein),
+    // ya pehli payment par Fees page ke "Renew" se.
   };
   const planOptions = (plansQ.data ?? []).filter((p) => p.active || p.id === editing?.plan_id);
 
