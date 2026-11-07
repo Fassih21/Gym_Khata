@@ -85,7 +85,13 @@ function FeesPage() {
   const renewPlan = activePlans.find((p) => p.id === renewPlanId);
   // Expiry abhi baqi hai to uske baad se barhao, warna payment date se.
   const renewBase = payFor?.membership_expires_on && payFor.membership_expires_on > paidOn ? payFor.membership_expires_on : paidOn;
-  const newExpiry = renewPlan ? addMonthsToDate(renewBase, renewPlan.duration_months) : "";
+  // CHANGE 1: Pehli payment par expiry dobara extend nahi hogi (member add par pehle hi join + 1 mahina ban chuki hoti hai).
+  const isFirstPayment = !!payFor && !everQ.data?.get(payFor.id);
+  const newExpiry = !renewPlan
+    ? ""
+    : isFirstPayment && !payMonth && payFor?.membership_expires_on
+      ? payFor.membership_expires_on
+      : addMonthsToDate(renewBase, renewPlan.duration_months);
 
   const pickRenewPlan = (id: string) => {
     setRenewPlanId(id);
@@ -159,8 +165,10 @@ function FeesPage() {
   const byMember = new Map(payments.map((p) => [p.member_id, p]));
   // Undo: agar payment ne expiry aage barhai thi to wapas karne ka option
   const undoPlan = (plansQ.data ?? []).find((p) => p.id === undoingFor?.plan_id);
+  // CHANGE 2: Pehli payment ne expiry aage nahi barhai thi, to undo par expiry peeche nahi jayegi.
+  const undoWasFirst = !!undoPayment && (ever.get(undoPayment.member_id ?? "") ?? "").slice(0, 7) === undoPayment.month.slice(0, 7);
   const rollbackTo =
-    undoPayment && undoingFor?.membership_expires_on && undoPlan && undoingFor.membership_expires_on >= addMonthsToDate(undoPayment.paid_on, undoPlan.duration_months)
+    !undoWasFirst && undoPayment && undoingFor?.membership_expires_on && undoPlan && undoingFor.membership_expires_on >= addMonthsToDate(undoPayment.paid_on, undoPlan.duration_months)
       ? addMonthsToDate(undoingFor.membership_expires_on, -undoPlan.duration_months)
       : "";
   const infoOf = (m: Member) => feeInfo(m.join_date, month, byMember.has(m.id), todayISO(), m.membership_expires_on, ever.get(m.id) ?? null);
