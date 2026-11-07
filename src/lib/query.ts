@@ -5,7 +5,7 @@ const run = (qc: QueryClient, keys: string[]) =>
   Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: [k] })));
 
 export const invalidate = {
-  members: (qc: QueryClient) => run(qc, ["members", "fees-members", "members-counts", "report-members"]),
+  members: (qc: QueryClient) => run(qc, ["members", "fees-members", "members-counts", "report-members", "attendance-members"]),
   payments: (qc: QueryClient) => run(qc, ["fees-payments", "payments6", "report-payments", "ever-paid"]),
   expenses: (qc: QueryClient) => run(qc, ["expenses", "expenses6", "report-expenses"]),
   employees: (qc: QueryClient) => run(qc, ["employees", "attendance-employees", "employees-counts"]),

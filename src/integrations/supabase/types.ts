@@ -218,6 +218,48 @@ export type Database = {
         }
         Relationships: []
       }
+      member_attendance: {
+        Row: {
+          checked_in_at: string
+          created_by: string
+          date: string
+          gym_id: string
+          id: string
+          member_id: string
+        }
+        Insert: {
+          checked_in_at?: string
+          created_by?: string
+          date: string
+          gym_id?: string
+          id?: string
+          member_id: string
+        }
+        Update: {
+          checked_in_at?: string
+          created_by?: string
+          date?: string
+          gym_id?: string
+          id?: string
+          member_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_attendance_member_id_gym_id_fkey"
+            columns: ["member_id", "gym_id"]
+            isOneToOne: false
+            referencedRelation: "members"
+            referencedColumns: ["id", "gym_id"]
+          },
+          {
+            foreignKeyName: "member_attendance_gym_id_fkey"
+            columns: ["gym_id"]
+            isOneToOne: false
+            referencedRelation: "gyms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       member_payments: {
         Row: {
           amount_paid: number
@@ -446,6 +488,10 @@ export type Database = {
     Functions: {
       current_gym_id: { Args: never; Returns: string }
       is_gym_active: { Args: never; Returns: boolean }
+      member_attendance_summary: {
+        Args: { p_month: string }
+        Returns: { member_id: string; visits: number; last_visit: string }[]
+      }
       members_with_payments: { Args: never; Returns: string[] }
       pk_today: { Args: never; Returns: string }
     }

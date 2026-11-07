@@ -56,6 +56,7 @@ export async function buildBackup(
   const employees = await load("employees", "Employees");
   const salaries = await load("salary_payments", "Salary payments");
   const attendance = await load("employee_attendance", "Attendance");
+  const memberAttendance = await load("member_attendance", "Member attendance");
 
   const planName = new Map(plans.map((p) => [p.id, p.name]));
   const member = new Map(members.map((m) => [m.id, m]));
@@ -113,6 +114,14 @@ export async function buildBackup(
       rows: [...attendance].sort(byDateDesc("date")).map((a) => ({
         Date: ymd(a.date), Employee: employee.get(a.employee_id)?.name ?? "", Status: a.status,
         "Created at": ts(a.created_at), "Attendance ID": a.id, "Employee ID": a.employee_id,
+      })),
+    },
+    {
+      file: "member_attendance.csv",
+      headers: ["Date", "Member", "Checked in at", "Attendance ID", "Member ID"],
+      rows: [...memberAttendance].sort(byDateDesc("date")).map((a) => ({
+        Date: ymd(a.date), Member: member.get(a.member_id)?.name ?? "", "Checked in at": ts(a.checked_in_at),
+        "Attendance ID": a.id, "Member ID": a.member_id,
       })),
     },
     {
