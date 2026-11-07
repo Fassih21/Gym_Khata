@@ -11,3 +11,4 @@ export type EmployeeInsert = Database["public"]["Tables"]["employees"]["Insert"]
 export type SalaryPayment = Database["public"]["Tables"]["salary_payments"]["Row"];
 export type Attendance = Database["public"]["Tables"]["employee_attendance"]["Row"];
 export type MembershipPlan = Database["public"]["Tables"]["membership_plans"]["Row"];
+export type MemberAttendance = Database["public"]["Tables"]["member_attendance"]["Row"];

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 
+import { MemberAttendance } from "@/components/member-attendance";
 import { MonthSelect } from "@/components/month-select";
 import { CenterSpinner, EmptyState, ErrorState, PageHeader } from "@/components/page";
 import { Button } from "@/components/ui/button";
@@ -16,11 +17,24 @@ export const Route = createFileRoute("/_authenticated/attendance")({
   head: () => ({
     meta: [
       { title: "Attendance — GymKhata" },
-      { name: "description", content: "Employees ki rozana hazri aur mahana khulasa." },
+      { name: "description", content: "Members aur employees ki rozana hazri aur mahana khulasa." },
     ],
   }),
   component: AttendancePage,
 });
+
+function AttendancePage() {
+  const [tab, setTab] = useState<"employees" | "members">("members");
+  return (
+    <div>
+      <div className="mb-5 flex gap-2">
+        <Button variant={tab === "members" ? "default" : "outline"} size="sm" aria-pressed={tab === "members"} onClick={() => setTab("members")}>Members</Button>
+        <Button variant={tab === "employees" ? "default" : "outline"} size="sm" aria-pressed={tab === "employees"} onClick={() => setTab("employees")}>Employees</Button>
+      </div>
+      {tab === "members" ? <MemberAttendance /> : <EmployeeAttendance />}
+    </div>
+  );
+}
 
 const STATUSES = [
   { value: "present", label: "P" },
@@ -28,7 +42,7 @@ const STATUSES = [
   { value: "leave", label: "L" },
 ] as const;
 
-function AttendancePage() {
+function EmployeeAttendance() {
   const qc = useQueryClient();
   const [month, setMonth] = useState(monthKey());
   const [date, setDate] = useState(todayISO());
@@ -84,7 +98,7 @@ function AttendancePage() {
   return (
     <div>
       <PageHeader
-        title="Attendance"
+        title="Employee Attendance"
         subtitle={monthLabel(month)}
         action={<MonthSelect value={month} onChange={setMonth} />}
       />

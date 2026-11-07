@@ -12,6 +12,7 @@ const TABLES: [string, string[]][] = [
   ["employees", ["name", "phone", "address", "photo_path"]],
   ["salary_payments", []],
   ["employee_attendance", []],
+  ["member_attendance", []],
 ];
 
 const cell = (v: unknown) => {
