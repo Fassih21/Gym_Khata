@@ -38,9 +38,24 @@ export function whatsappLink(phone: string, message: string): string {
   return `https://wa.me/${intl}?text=${encodeURIComponent(message)}`;
 }
 
-/** First day of the month for a date, as YYYY-MM-01 (the DB month key). */
+export const PAKISTAN_TIME_ZONE = "Asia/Karachi";
+
+function pakistanDateParts(d: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: PAKISTAN_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const part = (type: "year" | "month" | "day") =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  return { year: part("year"), month: part("month"), day: part("day") };
+}
+
+/** First day of the month in Asia/Karachi, as YYYY-MM-01 (the DB month key). */
 export function monthKey(d: Date = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  const { year, month } = pakistanDateParts(d);
+  return `${year}-${month}-01`;
 }
 
 /** Parses YYYY-MM-01 into a local Date without UTC shifting. */
@@ -63,21 +78,21 @@ export function monthShortLabel(key: string): string {
 
 /** Last n month keys, oldest first. */
 export function lastNMonths(n: number, from: Date = new Date()): string[] {
-  const keys: string[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    keys.push(monthKey(new Date(from.getFullYear(), from.getMonth() - i, 1)));
-  }
-  return keys;
+  const current = monthKey(from);
+  return Array.from({ length: n }, (_, index) => addMonths(current, index - (n - 1)));
 }
 
 export function addMonths(key: string, delta: number): string {
-  const d = parseMonthKey(key);
-  return monthKey(new Date(d.getFullYear(), d.getMonth() + delta, 1));
+  const [year, month] = key.slice(0, 7).split("-").map(Number) as [number, number];
+  const total = year * 12 + (month - 1) + delta;
+  const nextYear = Math.floor(total / 12);
+  const nextMonth = ((total % 12) + 12) % 12;
+  return `${nextYear}-${String(nextMonth + 1).padStart(2, "0")}-01`;
 }
 
 export function todayISO(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const { year, month, day } = pakistanDateParts(new Date());
+  return `${year}-${month}-${day}`;
 }
 
 /** Local YYYY-MM-DD for a Date. */
@@ -96,11 +111,28 @@ export function isSameMonth(iso: string | null | undefined, key: string): boolea
   return (iso ?? "").slice(0, 7) === key.slice(0, 7);
 }
 
-/** YYYY-MM-DD + n calendar months (month-end clamp: 31 Jan + 1 = 28/29 Feb). */
-export function addMonthsToDate(iso: string, n: number): string {
-  const [y, m, d] = iso.slice(0, 10).split("-").map(Number) as [number, number, number];
-  const last = new Date(y, m - 1 + n + 1, 0).getDate();
-  return dateISO(new Date(y, m - 1 + n, Math.min(d, last)));
+/** Last calendar date of a YYYY-MM-01 month key. */
+export function monthEndISO(key: string): string {
+  const [year, month] = key.slice(0, 7).split("-").map(Number) as [number, number];
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+}
+
+/** Stable billing-day anchor inferred from existing calendar dates. */
+export function billingDayAnchor(...dates: Array<string | null | undefined>): number {
+  const days = dates
+    .filter((date): date is string => Boolean(date))
+    .map((date) => Number(date.slice(8, 10)))
+    .filter((day) => Number.isInteger(day) && day >= 1 && day <= 31);
+  return days.length > 0 ? Math.max(...days) : 1;
+}
+
+/** YYYY-MM-DD + n calendar months, preserving a stable billing-day anchor. */
+export function addMonthsToDate(iso: string, n: number, billingDay = billingDayAnchor(iso)): string {
+  const [year, month] = iso.slice(0, 7).split("-").map(Number) as [number, number];
+  const targetMonth = addMonths(`${year}-${String(month).padStart(2, "0")}-01`, n);
+  const last = Number(monthEndISO(targetMonth).slice(8, 10));
+  return `${targetMonth.slice(0, 8)}${String(Math.min(billingDay, last)).padStart(2, "0")}`;
 }
 
 /** YYYY-MM-DD + n days. */

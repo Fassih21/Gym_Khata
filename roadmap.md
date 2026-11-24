@@ -13,7 +13,7 @@ Remaining (next turn):
 - [ ] Shared UI: month select (done), photo input component, stat cards
 - [ ] src/test: add format.test.ts (PKR format Rs 3,000, phone normalization, month keys)
 - [ ] Deliverables to Files: schema.sql copy, onboarding.sql, suspend_gym.sql, rls_test.sql, README
-- [ ] Set real support WhatsApp number in src/lib/config.ts (placeholder 923001234567)
+- [x] Set the real support WhatsApp number in the shared marketing config and reuse it for support links
 - [ ] End-to-end verify with a seeded gym + test user
 
 Updated this turn:

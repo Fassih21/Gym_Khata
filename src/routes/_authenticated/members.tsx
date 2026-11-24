@@ -15,9 +15,9 @@ import { usePlans } from "@/hooks/use-plans";
 import { initials } from "@/hooks/use-photo";
 import { supabase } from "@/integrations/supabase/client";
 import { invalidate } from "@/lib/query";
-import { expiryInfo, FEE_BADGE, feeInfo } from "@/lib/fees";
+import { expectedMonthlyFee, expiryInfo, FEE_BADGE, memberFeeState } from "@/lib/fees";
 import { fetchAll } from "@/lib/fetch-all";
-import { addMonthsToDate, formatDate, monthKey, todayISO } from "@/lib/format";
+import { addMonthsToDate, billingDayAnchor, formatDate, monthKey, todayISO } from "@/lib/format";
 import { memberSchema } from "@/lib/schemas";
 import type { Member, MemberPayment } from "@/lib/db-types";
 
@@ -119,11 +119,14 @@ function MembersPage() {
         plan_id: planId === "none" ? null : planId,
         membership_expires_on:
           expiresOn ||
-          (!editing && feeThisMonth && planId !== "none"
-            ? addMonthsToDate(
-                parsed.data.join_date,
-                plansQ.data?.find((p) => p.id === planId)?.duration_months ?? 1,
-              )
+          (!editing
+            ? feeThisMonth && planId !== "none"
+              ? addMonthsToDate(
+                  parsed.data.join_date,
+                  plansQ.data?.find((p) => p.id === planId)?.duration_months ?? 1,
+                  billingDayAnchor(parsed.data.join_date),
+                )
+              : parsed.data.join_date
             : null),
       };
       if (editing) {
@@ -181,10 +184,13 @@ function MembersPage() {
   };
   const planOptions = (plansQ.data ?? []).filter((p) => p.active || p.id === editing?.plan_id);
 
-  if (membersQ.isPending) return <CenterSpinner />;
-  if (membersQ.error) return <ErrorState onRetry={() => void membersQ.refetch()} />;
+  const loading = membersQ.isPending || paidQ.isPending || everQ.isPending || plansQ.isPending;
+  if (loading) return <CenterSpinner />;
+  if (membersQ.error || paidQ.error || everQ.error || plansQ.error)
+    return <ErrorState onRetry={() => { void membersQ.refetch(); void paidQ.refetch(); void everQ.refetch(); void plansQ.refetch(); }} />;
 
   const all = membersQ.data ?? [];
+  const planById = new Map((plansQ.data ?? []).map((p) => [p.id, p]));
   const filtered = all.filter((m) =>
     (showInactive ? true : m.status === "active") &&
     (search === "" || `${m.name} ${m.phone}`.toLowerCase().includes(search.toLowerCase())),
@@ -231,12 +237,19 @@ function MembersPage() {
                   })()}
                 </p>
               </div>
-              {m.status === "active" && !paidQ.isPending && (() => {
-                const fi = feeInfo(m.join_date, month, paidIds.has(m.id), todayISO(), m.membership_expires_on, everQ.data?.get(m.id) ?? null);
-                const b = FEE_BADGE[fi.status];
+              {m.status === "active" && (() => {
+                const fee = memberFeeState({
+                  joinDate: m.join_date,
+                  membershipExpiresOn: m.membership_expires_on,
+                  selectedMonth: month,
+                  hasPaymentForMonth: paidIds.has(m.id),
+                  firstPaidMonth: everQ.data?.get(m.id) ?? null,
+                  expectedAmount: expectedMonthlyFee(m.plan_id ? planById.get(m.plan_id) : undefined),
+                });
+                const b = FEE_BADGE[fee.status];
                 return (
                   <Badge variant="secondary" className={b.className}>
-                    {fi.covered ? "Covered" : b.label}{fi.status === "overdue" ? ` · ${fi.daysLate}d` : ""}
+                    {b.label}{fee.status === "overdue" ? ` · ${fee.daysLate}d` : ""}
                   </Badge>
                 );
               })()}
