@@ -21,10 +21,10 @@ import { MonthSelect } from "@/components/month-select";
 import { CenterSpinner, ErrorState, PageHeader } from "@/components/page";
 import { supabase } from "@/integrations/supabase/client";
 import { useEverPaid } from "@/hooks/use-ever-paid";
-import { expectedMonthlyFee, expiryInfo, feeInfo } from "@/lib/fees";
+import { expectedMonthlyFee, expiryInfo, memberFeeState } from "@/lib/fees";
 import { fetchAll } from "@/lib/fetch-all";
 import { usePlans } from "@/hooks/use-plans";
-import { formatDate, formatPKR, lastNMonths, monthKey, monthShortLabel, toNumber } from "@/lib/format";
+import { addMonths, formatDate, formatPKR, lastNMonths, monthKey, monthShortLabel, todayISO, toNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -141,6 +141,14 @@ function Dashboard() {
       );
     },
   });
+  const selectedPaymentsQ = useQuery({
+    queryKey: ["dashboard-payments", month],
+    queryFn: async () => {
+      return fetchAll<{ member_id: string; month: string; amount_paid: number }>((from, to) =>
+        supabase.from("member_payments").select("member_id, month, amount_paid").is("voided_at", null).eq("month", month).order("id").range(from, to),
+      );
+    },
+  });
   const expensesQ = useQuery({
     queryKey: ["expenses6", first6],
     queryFn: async () => {
@@ -149,11 +157,27 @@ function Dashboard() {
       );
     },
   });
+  const selectedExpensesQ = useQuery({
+    queryKey: ["dashboard-expenses", month],
+    queryFn: async () => {
+      return fetchAll<{ amount: number; expense_date: string; category: string }>((from, to) =>
+        supabase.from("expenses").select("amount, expense_date, category").gte("expense_date", month).lt("expense_date", addMonths(month, 1)).order("id").range(from, to),
+      );
+    },
+  });
   const salariesQ = useQuery({
     queryKey: ["salaries6", months6.join(",")],
     queryFn: async () => {
       return fetchAll<{ employee_id: string; month: string; amount_paid: number }>((from, to) =>
         supabase.from("salary_payments").select("employee_id, month, amount_paid").in("month", months6).order("id").range(from, to),
+      );
+    },
+  });
+  const selectedSalariesQ = useQuery({
+    queryKey: ["dashboard-salaries", month],
+    queryFn: async () => {
+      return fetchAll<{ employee_id: string; month: string; amount_paid: number }>((from, to) =>
+        supabase.from("salary_payments").select("employee_id, month, amount_paid").eq("month", month).order("id").range(from, to),
       );
     },
   });
@@ -182,14 +206,38 @@ function Dashboard() {
   });
 
   const loading =
-    paymentsQ.isPending || expensesQ.isPending || salariesQ.isPending || membersQ.isPending || employeesQ.isPending || everQ.isPending;
-  const error = paymentsQ.error || expensesQ.error || salariesQ.error || membersQ.error || employeesQ.error;
+    paymentsQ.isPending ||
+    selectedPaymentsQ.isPending ||
+    expensesQ.isPending ||
+    selectedExpensesQ.isPending ||
+    salariesQ.isPending ||
+    selectedSalariesQ.isPending ||
+    membersQ.isPending ||
+    employeesQ.isPending ||
+    everQ.isPending ||
+    plansQ.isPending;
+  const error =
+    paymentsQ.error ||
+    selectedPaymentsQ.error ||
+    expensesQ.error ||
+    selectedExpensesQ.error ||
+    salariesQ.error ||
+    selectedSalariesQ.error ||
+    membersQ.error ||
+    employeesQ.error ||
+    everQ.error ||
+    plansQ.error;
   const retry = () => {
     void paymentsQ.refetch();
+    void selectedPaymentsQ.refetch();
     void expensesQ.refetch();
+    void selectedExpensesQ.refetch();
     void salariesQ.refetch();
+    void selectedSalariesQ.refetch();
     void membersQ.refetch();
     void employeesQ.refetch();
+    void everQ.refetch();
+    void plansQ.refetch();
   };
 
   if (loading) return <CenterSpinner />;
@@ -199,40 +247,50 @@ function Dashboard() {
   // "Salaries" category ke kharche yahan nahi ginay jate: salary alag (salary_payments) se aati hai, warna double count hota.
   const expenses = (expensesQ.data ?? []).filter((e) => e.category !== "Salaries");
   const salaries = salariesQ.data ?? [];
+  const selectedPayments = selectedPaymentsQ.data ?? [];
+  const selectedExpenses = (selectedExpensesQ.data ?? []).filter((e) => e.category !== "Salaries");
+  const selectedSalaries = selectedSalariesQ.data ?? [];
   const members = membersQ.data ?? [];
   const employees = (employeesQ.data ?? []).filter((e) => e.status === "active" && e.join_date.slice(0, 7) <= month.slice(0, 7));
 
-  const monthPayments = payments.filter((p) => p.month === month);
-  const revenue = monthPayments.reduce((s, p) => s + toNumber(p.amount_paid), 0);
-  const monthExpenses = expenses.filter((e) => e.expense_date.slice(0, 7) === month.slice(0, 7));
-  const expenseTotal = monthExpenses.reduce((s, e) => s + toNumber(e.amount), 0);
-  const salaryTotal = salaries.filter((s) => s.month === month).reduce((s, r) => s + toNumber(r.amount_paid), 0);
+  const revenue = selectedPayments.reduce((s, p) => s + toNumber(p.amount_paid), 0);
+  const expenseTotal = selectedExpenses.reduce((s, e) => s + toNumber(e.amount), 0);
+  const salaryTotal = selectedSalaries.reduce((s, r) => s + toNumber(r.amount_paid), 0);
   const net = revenue - (expenseTotal + salaryTotal);
   const ever = everQ.data ?? new Map<string, string>();
-  const paidIds = new Set(monthPayments.map((p) => p.member_id));
+  const paidIds = new Set(selectedPayments.map((p) => p.member_id));
   // Selected mahine mein jo member maujood tha (us mahine ya pehle join hua) wahi ginti mein; fees status wahi jo Fees page par.
   const activeList = members.filter((m) => m.status === "active" && m.join_date.slice(0, 7) <= month.slice(0, 7));
+  const planById = new Map((plansQ.data ?? []).map((p) => [p.id, p]));
+  const lastPaid = new Map<string, number>();
+  [...payments, ...selectedPayments]
+    .sort((a, b) => a.month.localeCompare(b.month))
+    .forEach((p) => lastPaid.set(p.member_id, toNumber(p.amount_paid)));
+  const today = todayISO();
+  const memberStates = activeList.map((member) => ({
+    member,
+    fee: memberFeeState({
+      joinDate: member.join_date,
+      membershipExpiresOn: member.membership_expires_on,
+      selectedMonth: month,
+      hasPaymentForMonth: paidIds.has(member.id),
+      firstPaidMonth: ever.get(member.id) ?? null,
+      expectedAmount: expectedMonthlyFee(
+        member.plan_id ? planById.get(member.plan_id) : undefined,
+        lastPaid.get(member.id),
+      ),
+      today,
+    }),
+  }));
   const activeMembers = activeList.length;
-  const unpaidCount = activeList.filter(
-    (m) => feeInfo(m.join_date, month, paidIds.has(m.id), undefined, m.membership_expires_on, ever.get(m.id) ?? null).status !== "paid",
-  ).length;
-  const paidSalaryIds = new Set(salaries.filter((s) => s.month === month).map((s) => s.employee_id));
+  const pendingMembers = memberStates.filter(({ fee }) => fee.isPending);
+  const unpaidCount = pendingMembers.length;
+  const paidSalaryIds = new Set(selectedSalaries.map((s) => s.employee_id));
   const salariesPending = employees.filter((e) => !paidSalaryIds.has(e.id)).length;
 
-  // Overdue: hamesha aaj ke calendar mahine ke hisaab se (selector se independent).
-  const nowMonth = monthKey();
-  const lastPaid = new Map<string, number>();
-  [...payments].sort((a, b) => a.month.localeCompare(b.month)).forEach((p) => lastPaid.set(p.member_id, toNumber(p.amount_paid)));
-  const paidNow = new Set(payments.filter((p) => p.month === nowMonth).map((p) => p.member_id));
-  const overdueMembers = members.filter(
-    (m) => m.status === "active" && feeInfo(m.join_date, nowMonth, paidNow.has(m.id), undefined, m.membership_expires_on, ever.get(m.id) ?? null).status === "overdue",
-  );
-  const planById = new Map((plansQ.data ?? []).map((p) => [p.id, p]));
-  const overdueAmount = overdueMembers.reduce(
-    (s, m) => s + expectedMonthlyFee(m.plan_id ? planById.get(m.plan_id) : undefined, lastPaid.get(m.id)),
-    0,
-  );
-  const approx = overdueMembers.some((m) => !m.plan_id || !planById.has(m.plan_id));
+  const overdueMembers = memberStates.filter(({ fee }) => fee.status === "overdue");
+  const pendingAmount = pendingMembers.reduce((sum, { fee }) => sum + fee.pendingAmount, 0);
+  const approx = pendingMembers.some(({ member }) => !member.plan_id || !planById.has(member.plan_id));
   const withExpiry = members
     .filter((m) => m.status === "active" && m.membership_expires_on)
     .map((m) => ({ m, ex: expiryInfo(m.membership_expires_on)! }))
@@ -272,8 +330,8 @@ function Dashboard() {
         <Stat label="Active members" value={activeMembers} format={whole} />
         <Stat label="Fees unpaid" value={unpaidCount} format={whole} tone={unpaidCount > 0 ? "bad" : "good"} />
         <Stat label="Salaries pending" value={salariesPending} format={whole} tone={salariesPending > 0 ? "bad" : "good"} />
-        <Stat label="Overdue members" value={overdueMembers.length} format={whole} tone={overdueMembers.length > 0 ? "bad" : "good"} hint="Due date guzar gayi, fees nahi aayi" />
-        <Stat label={approx ? "Total pending amount (approx)" : "Total pending amount"} value={overdueAmount} format={money} tone={overdueAmount > 0 ? "bad" : "good"} hint={approx ? "approx: kuch members ka plan nahi, aakhri payment/Rs 3000 ka andaaza" : "Plan ke hisaab se"} />
+        <Stat label="Overdue members" value={overdueMembers.length} format={whole} tone={overdueMembers.length > 0 ? "bad" : "good"} hint="Stored deadline guzar gayi" />
+        <Stat label={approx ? "Total pending amount (approx)" : "Total pending amount"} value={pendingAmount} format={money} tone={pendingAmount > 0 ? "bad" : "good"} hint={approx ? "approx: kuch members ka plan nahi, aakhri payment/Rs 3000 ka andaaza" : "Plan ke hisaab se"} />
       </Stagger>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">

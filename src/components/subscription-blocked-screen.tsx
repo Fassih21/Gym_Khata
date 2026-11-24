@@ -2,8 +2,8 @@ import { LockKeyhole, MessageCircle } from "lucide-react";
 
 import { LogoMark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
-import { SUPPORT_MESSAGE, SUPPORT_WHATSAPP } from "@/lib/config";
-import { whatsappLink } from "@/lib/format";
+import { SUPPORT_MESSAGE } from "@/lib/config";
+import { marketingWhatsAppUrl } from "@/lib/marketing-config";
 
 export function SubscriptionBlockedScreen({ reason }: { reason: "suspended" | "expired" }) {
   const expired = reason === "expired";
@@ -22,7 +22,7 @@ export function SubscriptionBlockedScreen({ reason }: { reason: "suspended" | "e
           : "Is waqt aap ka gym account suspend kiya gaya hai. Details ke liye support se rabta karein."}
       </p>
       <a
-        href={whatsappLink(SUPPORT_WHATSAPP, SUPPORT_MESSAGE)}
+        href={marketingWhatsAppUrl(SUPPORT_MESSAGE)}
         target="_blank"
         rel="noreferrer"
         className="mt-8"

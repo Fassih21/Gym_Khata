@@ -12,8 +12,7 @@ interface MonthSelectProps {
 
 export function MonthSelect({ value, onChange, maxFuture = 0 }: MonthSelectProps) {
   const current = monthKey();
-  const now = new Date();
-  const earliest = monthKey(new Date(now.getFullYear() - 2, 0, 1));
+  const earliest = `${Number(current.slice(0, 4)) - 2}-01-01`;
   const canGoBack = value > earliest;
   const latest = addMonths(current, maxFuture);
 

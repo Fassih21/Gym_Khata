@@ -5,14 +5,13 @@ import { useState } from "react";
 
 import { useEverPaid } from "@/hooks/use-ever-paid";
 import { usePlans } from "@/hooks/use-plans";
-import { expectedMonthlyFee } from "@/lib/fees";
+import { expectedMonthlyFee, memberFeeState } from "@/lib/fees";
 import { MonthSelect } from "@/components/month-select";
 import { CenterSpinner, ErrorState, PageHeader } from "@/components/page";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAll } from "@/lib/fetch-all";
 import { downloadCSV, toCSV } from "@/lib/csv";
-import { feeInfo } from "@/lib/fees";
 import { addMonths, formatPKR, monthKey, monthLabel, todayISO, toNumber } from "@/lib/format";
 import type { Expense, Member, MemberPayment, SalaryPayment } from "@/lib/db-types";
 
@@ -66,9 +65,9 @@ function ReportsPage() {
   const plansQ = usePlans();
   const loading = everQ.isPending || plansQ.isPending || paymentsQ.isPending || salariesQ.isPending || expensesQ.isPending || membersQ.isPending;
   if (loading) return <CenterSpinner />;
-  const error = paymentsQ.error || salariesQ.error || expensesQ.error || membersQ.error;
+  const error = paymentsQ.error || salariesQ.error || expensesQ.error || membersQ.error || everQ.error || plansQ.error;
   if (error)
-    return <ErrorState onRetry={() => { void paymentsQ.refetch(); void salariesQ.refetch(); void expensesQ.refetch(); void membersQ.refetch(); }} />;
+    return <ErrorState onRetry={() => { void paymentsQ.refetch(); void salariesQ.refetch(); void expensesQ.refetch(); void membersQ.refetch(); void everQ.refetch(); void plansQ.refetch(); }} />;
 
   const payments = paymentsQ.data ?? [];
   const salaries = salariesQ.data ?? [];
@@ -81,7 +80,21 @@ function ReportsPage() {
   const expenseTotal = expenses.reduce((s, e) => s + toNumber(e.amount), 0) + salaryTotal;
   const net = revenue - expenseTotal;
   const paidIds = new Set(payments.map((p) => p.member_id));
-  const dues = members.filter((m) => feeInfo(m.join_date, month, paidIds.has(m.id), todayISO(), m.membership_expires_on, ever.get(m.id) ?? null).status !== "paid");
+  const planById = new Map((plansQ.data ?? []).map((p) => [p.id, p]));
+  const today = todayISO();
+  const feeRows = members.map((member) => ({
+    member,
+    fee: memberFeeState({
+      joinDate: member.join_date,
+      membershipExpiresOn: member.membership_expires_on,
+      selectedMonth: month,
+      hasPaymentForMonth: paidIds.has(member.id),
+      firstPaidMonth: ever.get(member.id) ?? null,
+      expectedAmount: expectedMonthlyFee(member.plan_id ? planById.get(member.plan_id) : undefined),
+      today,
+    }),
+  }));
+  const dues = feeRows.filter(({ fee }) => fee.isPending);
 
   const rows = [
     { label: "Fees collected", value: formatPKR(revenue) },
@@ -92,11 +105,10 @@ function ReportsPage() {
     { label: "Members paid / unpaid", value: `${members.length - dues.length} / ${dues.length}` },
   ];
 
-  const planById = new Map((plansQ.data ?? []).map((p) => [p.id, p]));
   const exportDues = () =>
     downloadCSV(`gymkhata-dues-${month.slice(0, 7)}.csv`, toCSV(
-      dues.map((m) => ({ name: m.name, phone: m.phone, month: month.slice(0, 7), pending_amount: (() => { const p = planById.get(m.plan_id ?? ""); return p ? expectedMonthlyFee(p) : ""; })() })),
-      ["name", "phone", "month", "pending_amount"],
+      dues.map(({ member, fee }) => ({ name: member.name, phone: member.phone, month: month.slice(0, 7), deadline: fee.deadline, status: fee.status, pending_amount: fee.pendingAmount })),
+      ["name", "phone", "month", "deadline", "status", "pending_amount"],
     ));
   const exportPayments = () =>
     downloadCSV(`gymkhata-payments-${month.slice(0, 7)}.csv`, toCSV(

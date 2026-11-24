@@ -22,9 +22,9 @@ import { usePlans } from "@/hooks/use-plans";
 import { supabase } from "@/integrations/supabase/client";
 import { invalidate } from "@/lib/query";
 import { useEverPaid } from "@/hooks/use-ever-paid";
-import { expectedMonthlyFee, FEE_BADGE, feeInfo } from "@/lib/fees";
+import { expectedMonthlyFee, FEE_BADGE, memberFeeState } from "@/lib/fees";
 import { fetchAll } from "@/lib/fetch-all";
-import { addMonths, addMonthsToDate, formatDate, formatPKR, monthKey, monthLabel, todayISO, whatsappLink } from "@/lib/format";
+import { addMonths, addMonthsToDate, billingDayAnchor, formatDate, formatPKR, monthKey, monthLabel, todayISO, whatsappLink } from "@/lib/format";
 import { paymentSchema } from "@/lib/schemas";
 import type { Member, MemberPayment } from "@/lib/db-types";
 
@@ -47,6 +47,7 @@ function FeesPage() {
   const [paidOn, setPaidOn] = useState(todayISO());
   const [note, setNote] = useState("");
   const [renew, setRenew] = useState(false);
+  const [renewRequired, setRenewRequired] = useState(false);
   const [renewPlanId, setRenewPlanId] = useState("");
   // Expired member ki renewal: payment agle mahine ki fees ke taur par save hoti hai (ek member, ek mahina, ek payment).
   const [payMonth, setPayMonth] = useState<string | null>(null);
@@ -85,13 +86,12 @@ function FeesPage() {
   const renewPlan = activePlans.find((p) => p.id === renewPlanId);
   // Expiry abhi baqi hai to uske baad se barhao, warna payment date se.
   const renewBase = payFor?.membership_expires_on && payFor.membership_expires_on > paidOn ? payFor.membership_expires_on : paidOn;
-  // CHANGE 1: Pehli payment par expiry dobara extend nahi hogi (member add par pehle hi join + 1 mahina ban chuki hoti hai).
-  const isFirstPayment = !!payFor && !everQ.data?.get(payFor.id);
+  const renewBillingDay = payFor
+    ? billingDayAnchor(payFor.join_date, payFor.membership_expires_on ?? paidOn)
+    : billingDayAnchor(paidOn);
   const newExpiry = !renewPlan
     ? ""
-    : isFirstPayment && !payMonth && payFor?.membership_expires_on
-      ? payFor.membership_expires_on
-      : addMonthsToDate(renewBase, renewPlan.duration_months);
+    : addMonthsToDate(renewBase, renewPlan.duration_months, renewBillingDay);
 
   const pickRenewPlan = (id: string) => {
     setRenewPlanId(id);
@@ -103,7 +103,8 @@ function FeesPage() {
     mutationFn: async (member: Member) => {
       const parsed = paymentSchema.safeParse({ amount, paid_on: paidOn, note });
       if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "Form check karein");
-      if (payMonth && !(renew && renewPlan)) throw new Error("Renew ke liye membership plan chunein (plan na ho to pehle Plans banayein).");
+      if (renewRequired && !(renew && renewPlan)) throw new Error("Expired deadline ko aage barhane ke liye membership plan chunein.");
+      if (renew && !renewPlan) throw new Error("Renew ke liye membership plan chunein (plan na ho to pehle Plans banayein).");
       const { error } = await supabase.from("member_payments").insert({
         member_id: member.id,
         month: payMonth ?? month,
@@ -126,6 +127,7 @@ function FeesPage() {
     onSuccess: () => {
       setPayFor(null);
       setPayMonth(null);
+      setRenewRequired(false);
       setFormError(null);
       void invalidate.payments(qc);
       void invalidate.members(qc);
@@ -165,15 +167,32 @@ function FeesPage() {
   const byMember = new Map(payments.map((p) => [p.member_id, p]));
   // Undo: agar payment ne expiry aage barhai thi to wapas karne ka option
   const undoPlan = (plansQ.data ?? []).find((p) => p.id === undoingFor?.plan_id);
-  // CHANGE 2: Pehli payment ne expiry aage nahi barhai thi, to undo par expiry peeche nahi jayegi.
   const undoWasFirst = !!undoPayment && (ever.get(undoPayment.member_id ?? "") ?? "").slice(0, 7) === undoPayment.month.slice(0, 7);
+  const undoBillingDay = undoingFor
+    ? billingDayAnchor(undoingFor.join_date, undoingFor.membership_expires_on, undoPayment?.paid_on)
+    : 1;
   const rollbackTo =
-    !undoWasFirst && undoPayment && undoingFor?.membership_expires_on && undoPlan && undoingFor.membership_expires_on >= addMonthsToDate(undoPayment.paid_on, undoPlan.duration_months)
-      ? addMonthsToDate(undoingFor.membership_expires_on, -undoPlan.duration_months)
+    undoPayment && undoingFor?.membership_expires_on && undoPlan && undoingFor.membership_expires_on >= addMonthsToDate(undoPayment.paid_on, undoPlan.duration_months, undoBillingDay)
+      ? undoWasFirst
+        ? undoingFor.join_date
+        : addMonthsToDate(undoingFor.membership_expires_on, -undoPlan.duration_months, undoBillingDay)
       : "";
-  const infoOf = (m: Member) => feeInfo(m.join_date, month, byMember.has(m.id), todayISO(), m.membership_expires_on, ever.get(m.id) ?? null);
-  const unpaid = members.filter((m) => infoOf(m).status !== "paid");
-  const overdue = members.filter((m) => infoOf(m).status === "overdue");
+  const planById = new Map((plansQ.data ?? []).map((p) => [p.id, p]));
+  const stateByMember = new Map(
+    members.map((m) => [
+      m.id,
+      memberFeeState({
+        joinDate: m.join_date,
+        membershipExpiresOn: m.membership_expires_on,
+        selectedMonth: month,
+        hasPaymentForMonth: byMember.has(m.id),
+        firstPaidMonth: ever.get(m.id) ?? null,
+        expectedAmount: expectedMonthlyFee(m.plan_id ? planById.get(m.plan_id) : undefined),
+      }),
+    ]),
+  );
+  const unpaid = members.filter((m) => stateByMember.get(m.id)?.isPending);
+  const overdue = members.filter((m) => stateByMember.get(m.id)?.status === "overdue");
   const shown = filter === "overdue" ? overdue : filter === "unpaid" ? unpaid : members;
 
   return (
@@ -202,32 +221,37 @@ function FeesPage() {
         <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
           {shown.map((m) => {
             const payment = byMember.get(m.id);
-            const fi = infoOf(m);
+            const fee = stateByMember.get(m.id)!;
+            const needsRenewal =
+              fee.status === "overdue" &&
+              Boolean(m.membership_expires_on && fee.deadline === m.membership_expires_on);
             return (
               <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 transition-colors hover:bg-accent/50">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">{m.name}</p>
                   <p className="text-sm text-muted-foreground">
-                    {m.phone} · due {formatDate(fi.dueDate)}
-                    {fi.status === "overdue" && <span className="font-semibold text-destructive"> · {fi.daysLate} din late</span>}
+                    {m.phone} · deadline {formatDate(fee.deadline)}
+                    {fee.status === "overdue" && <span className="font-semibold text-destructive"> · {fee.daysLate} din late</span>}
                   </p>
                 </div>
-                {payment && !fi.expired ? (
+                {fee.status === "paid" ? (
                   <div className="flex items-center gap-2">
                     <Badge className="gap-1 bg-success/15 text-success">
-                      <CheckCircle2 className="size-3.5" /> {formatPKR(payment.amount_paid)}
+                      <CheckCircle2 className="size-3.5" /> {payment ? formatPKR(payment.amount_paid) : "Paid · covered"}
                     </Badge>
-                    <Button variant="ghost" size="sm" onClick={() => { setUndoPayment(payment); setUndoingFor(m); setRollback(true); }}>
-                      <Undo2 className="size-4" /> Undo
-                    </Button>
+                    {payment && (
+                      <Button variant="ghost" size="sm" onClick={() => { setUndoPayment(payment); setUndoingFor(m); setRollback(true); }}>
+                        <Undo2 className="size-4" /> Undo
+                      </Button>
+                    )}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className={`gap-1 ${FEE_BADGE[fi.status].className}`}>
-                      {fi.covered ? <CheckCircle2 className="size-3.5" /> : <XCircle className="size-3.5" />} {fi.covered ? "Covered" : fi.expired ? "Expired" : fi.status === "overdue" ? "Overdue" : fi.status === "new" ? "New · Unpaid" : "Due"}
+                    <Badge variant="secondary" className={`gap-1 ${FEE_BADGE[fee.status].className}`}>
+                      <XCircle className="size-3.5" /> {FEE_BADGE[fee.status].label}
                     </Badge>
                     <a
-                      href={whatsappLink(m.phone, fi.expired ? `Assalam o alaikum ${m.name}! Aapki membership expire ho chuki hai. Please jald renew karwa lein. — GymKhata` : `Assalam o alaikum ${m.name}! Is mahine ki fees baqi hai. Please jald ada karein. — GymKhata`)}
+                      href={whatsappLink(m.phone, needsRenewal ? `Assalam o alaikum ${m.name}! Aapki membership expire ho chuki hai. Please jald renew karwa lein. — GymKhata` : `Assalam o alaikum ${m.name}! Aapki fees pending hai. Please jald ada karein. — GymKhata`)}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -240,8 +264,9 @@ function FeesPage() {
                       const planId = own?.active ? own.id : activePlans[0]?.id ?? "";
                       setPayFor(m); setAmount(String(expectedMonthlyFee(own))); setPaidOn(todayISO()); setNote(""); setFormError(null);
                       setRenewPlanId(planId);
-                      if (fi.expired) {
-                        setPayMonth(addMonths(month, 1));
+                      setRenewRequired(needsRenewal);
+                      if (needsRenewal) {
+                        setPayMonth(payment ? addMonths(month, 1) : null);
                         setRenew(true);
                         const rp = activePlans.find((p) => p.id === planId);
                         if (rp) setAmount(String(rp.price));
@@ -252,7 +277,7 @@ function FeesPage() {
                         if (auto && own) setAmount(String(own.price));
                       }
                     }}>
-                      {fi.expired ? "Renew" : "Mark paid"}
+                      {needsRenewal ? "Renew" : "Mark paid"}
                     </Button>
                   </div>
                 )}
@@ -263,7 +288,7 @@ function FeesPage() {
       )}
 
       {/* Mark paid dialog */}
-      <Dialog open={!!payFor} onOpenChange={(o) => !o && setPayFor(null)}>
+      <Dialog open={!!payFor} onOpenChange={(o) => { if (!o) { setPayFor(null); setRenewRequired(false); } }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>{payMonth ? "Membership renew" : "Fees jama karein"} — {payFor?.name}</DialogTitle>
@@ -290,7 +315,7 @@ function FeesPage() {
               <div className="space-y-2 rounded-lg border border-border p-3">
                 <label className="flex items-center gap-2 text-sm font-medium">
                   <Checkbox
-                    disabled={!!payMonth}
+                    disabled={!!payMonth || renewRequired}
                     checked={renew}
                     onCheckedChange={(v) => {
                       setRenew(v === true);
@@ -317,7 +342,7 @@ function FeesPage() {
             {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPayFor(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setPayFor(null); setRenewRequired(false); }}>Cancel</Button>
             <Button disabled={markPaid.isPending} onClick={() => payFor && markPaid.mutate(payFor)}>
               {markPaid.isPending ? "Saving…" : "Mark paid"}
             </Button>
