@@ -1,215 +1,164 @@
 # GymKhata
 
-Gym management for Pakistan. One app, many gyms: each gym gets its own login and sees only its own data.
+GymKhata is a multi-tenant gym management app built for Pakistani gym owners. It keeps members, fees, attendance, employees, expenses, and reports in one place, with PKR formatting and practical Roman Urdu/English copy.
 
-Members and fees, plans and expiry, staff salary and attendance, expenses, and a daily dashboard, with Urdu-friendly (Roman Urdu) wording and PKR formatting.
+Each gym has its own login and can access only its own records through Supabase Row Level Security (RLS).
 
 ## Features
 
-- **Members**: add, edit, deactivate and reactivate (nothing is hard-deleted), search, join date, plan and expiry
-- **Fees**: month-wise paid/unpaid view, partial-month coverage for quarterly and yearly plans, one-tap WhatsApp reminders, renew, and payment cancel (void) with a reason
-- **Membership plans**: monthly, quarterly, half-yearly, yearly, custom price and duration
-- **Employees**: salary payments, daily attendance, mark as left (kept in history)
-- **Expenses**: categories, monthly totals, no double counting with salaries
-- **Dashboard and reports**: collected, unpaid, expenses, profit, and CSV export per month
-- **Full data export** from Settings, and in-app password change
-- **Admin panel** (`/admin`): create, suspend, resume and delete gyms, audit log, MFA-protected (see `ADMIN.md`)
+- Member registration, plans, expiry tracking, search, and active/inactive history
+- Monthly fee collection, due/overdue status, renewals, voided payments, and WhatsApp reminders
+- Monthly, quarterly, half-yearly, yearly, and custom membership plans
+- Member attendance with monthly summaries
+- Employee records, attendance, salary payments, and employment history
+- Expense tracking, dashboard totals, profit reporting, and CSV exports
+- Password changes and full gym data export from Settings
+- Platform admin panel for gym onboarding, suspension, plan management, audit logs, and exports
+- Public marketing pages for product information, pricing, FAQs, and contact
 
-## Stack
+## Tech stack
 
-| Layer | Tech |
-|---|---|
-| UI | React, TypeScript, Tailwind CSS |
-| Routing and server | TanStack Start, TanStack Router, TanStack Query |
-| Database and auth | Supabase (Postgres, Auth, Row Level Security) |
-| Hosting | Cloudflare Workers |
-| Unit tests | Vitest |
-| End-to-end tests | Playwright |
+| Area       | Technology                                                    |
+| ---------- | ------------------------------------------------------------- |
+| App        | React 19, TypeScript, TanStack Start, TanStack Router         |
+| UI         | Tailwind CSS, shadcn/ui, Radix UI, Framer Motion              |
+| Data       | Supabase Auth, PostgreSQL, Row Level Security, TanStack Query |
+| Validation | Zod, React Hook Form                                          |
+| Hosting    | Cloudflare Workers                                            |
+| Testing    | Vitest, Testing Library, Playwright                           |
 
-## Project layout
+## Local development
 
-```
-src/
-  routes/             pages (dashboard, members, fees, employees, expenses, reports, settings, admin)
-  routes/_authenticated/   screens that need a signed-in gym user
-  lib/fees.ts         fee status logic (paid, due, overdue, expired, covered)
-  lib/format.ts       dates, PKR, WhatsApp links
-  admin-server/       server-only admin actions (service role key lives here only)
-  integrations/supabase/   client and generated types
-e2e/                  Playwright end-to-end tests
-  auth.setup.ts       logs in once and saves the session
-  helpers.ts          shared helpers (login, addMember, feeRow, ...)
-  login.spec.ts       login and route protection
-  members-fees.spec.ts   fee and expiry rules
-  isolation.spec.ts   gym-to-gym data isolation
-playwright.config.ts  Playwright projects and dev server config
-db/                   numbered SQL migrations (source of truth for the database)
-tests/                database tests
-wrangler.jsonc        Cloudflare Workers config
-```
+### Prerequisites
 
-## Getting started
+- Node.js (current LTS recommended)
+- npm
+- Access to a configured Supabase project
+
+Install dependencies:
 
 ```bash
 npm ci
-cp .env.example .env     # fill in the values below
+```
+
+Create a local `.env` file (it is ignored by Git):
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+
+# Required only for server-side admin operations. Never expose this as VITE_*.
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+ADMIN_REQUIRE_MFA=true
+ADMIN_EXPORT_INCLUDE_PII=false
+```
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
-Environment variables:
+## Available scripts
 
-| Name | Where | Notes |
-|---|---|---|
-| `SUPABASE_URL` | server and `wrangler.jsonc` | project URL |
-| `SUPABASE_PUBLISHABLE_KEY` | server and `wrangler.jsonc` | public (anon) key |
-| `VITE_SUPABASE_URL` | browser build | same URL |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | browser build | same public key |
-| `SUPABASE_SERVICE_ROLE_KEY` | **server secret only** | never put in `VITE_*`, never commit |
-| `ADMIN_REQUIRE_MFA` | server | `true` in production |
-| `ADMIN_EXPORT_INCLUDE_PII` | server | `false` by default |
-| `E2E_EMAIL`, `E2E_PASSWORD` | `.env.test` only | login of the test gym (Gym A) for Playwright |
-| `E2E_EMAIL_B`, `E2E_PASSWORD_B` | `.env.test` only | optional second gym; without it the isolation test is skipped |
+| Command              | Purpose                             |
+| -------------------- | ----------------------------------- |
+| `npm run dev`        | Start the local development server  |
+| `npm run build`      | Create a production build           |
+| `npm run preview`    | Preview the production build        |
+| `npm run lint`       | Run ESLint                          |
+| `npm run format`     | Format the repository with Prettier |
+| `npm test`           | Run the Vitest suite once           |
+| `npm run test:watch` | Run Vitest in watch mode            |
+| `npm run e2e`        | Run Playwright end-to-end tests     |
+| `npm run e2e:ui`     | Open Playwright UI mode             |
+| `npm run e2e:report` | Open the latest Playwright report   |
 
-## Database
+## End-to-end tests
 
-Everything lives in `db/` and is applied in numeric order:
-
-| File | Purpose |
-|---|---|
-| `001_base.sql` | tables, RLS, helper functions (new project only) |
-| `002_plans.sql` | membership plans (new project only) |
-| `003_admin.sql` | platform admins, audit log (new project only) |
-| `004_logic.sql` | Pakistan time, payment void, one live payment per member per month |
-| `005_rate_limit.sql` | per-gym insert rate limits |
-| `006_hardening.sql` | privilege cleanup, admin list fix, unlimited default |
-| `099_verify.sql` | sanity checks, every row must be `true` |
-| `onboarding.sql` | create a gym and its owner login |
-
-Rules: every schema change gets a new numbered file first, never edit an old one, and run `099_verify.sql` after each change.
-
-## Adding a new gym
-
-Edit the three values at the top of `db/onboarding.sql` (gym name, owner email, password) and run it in the SQL editor. It is safe to run twice. Ask the owner to change the password from Settings on first login.
-
-Suspend or resume a gym:
-
-```sql
-update public.gyms set status = 'suspended' where name = '<GYM NAME>';
-update public.gyms set status = 'active'    where name = '<GYM NAME>';
-```
-
-## Scripts
+Use dedicated test gyms because the Playwright suite creates and removes test data.
 
 ```bash
-npm run dev          # local dev server
-npm run build        # production build
-npm test             # unit tests (Vitest)
-npm run e2e:ui       # Playwright UI mode
-npx tsc --noEmit     # type check
-npm run lint         # lint
-npm run format       # prettier
-```
-
-## End-to-end testing (Playwright)
-
-Playwright drives a real browser against the running app and checks the rules that matter most: fees, expiry dates, login, and gym-to-gym data isolation.
-
-### One-time setup
-
-```bash
-npm ci
+cp .env.test.example .env.test
 npx playwright install chromium
-cp .env.test.example .env.test    # then fill in the test gym login
+npm run e2e
 ```
 
-`.env.test` holds a real login, so it is **never committed** (it is in `.gitignore`):
+Fill `.env.test` with the primary test gym credentials. A second gym is optional and enables the tenant-isolation test:
 
-```
-E2E_EMAIL=gymA@test.com
+```env
+E2E_EMAIL=gym-a@example.com
 E2E_PASSWORD=your-test-password
-# Optional: a second gym for the isolation test
-E2E_EMAIL_B=
-E2E_PASSWORD_B=
+E2E_EMAIL_B=gym-b@example.com
+E2E_PASSWORD_B=your-second-test-password
 ```
 
-Quote the password if it contains `#` (for example `E2E_PASSWORD="abc#123"`), otherwise dotenv treats `#` as a comment.
+`.env.test`, saved browser sessions, test results, and Playwright reports are ignored by Git.
 
-Use a dedicated test gym, not a real customer's gym. The tests create and delete members.
+## Database setup and migrations
 
-### Projects
+Database SQL is applied manually in the Supabase SQL editor. Do not assume a migration has already been run.
 
-| Project | What it runs |
-|---|---|
-| `setup` | `auth.setup.ts`: logs in as Gym A and saves the session to `e2e/.auth/gymA.json` |
-| `mobile` | fee and expiry tests and the isolation test, on a mobile viewport, using the saved session |
-| `login` | login success, wrong password, and protected pages without login |
+- `schema.sql` contains the baseline multi-tenant schema, functions, indexes, storage rules, and RLS policies.
+- `migration_plans.sql` adds membership plan support.
+- `migration_admin.sql` adds the platform-admin data model and policies.
+- `onboarding.sql` provisions a gym and owner account.
+- `suspend_gym.sql` contains gym suspension/resumption operations.
+- `rls_test.sql` and `tests/*.sql` verify database isolation and behavior.
+- New database changes are added as idempotent `migration_<name>.sql` files in the repository root and run manually before dependent application code is deployed.
 
-### Running tests
+Never place `SUPABASE_SERVICE_ROLE_KEY` in frontend code, any `VITE_*` variable, or a committed file.
 
-```bash
-npm run e2e:ui                                   # interactive UI mode (easiest)
-npx playwright test                              # everything, headless
-npx playwright test --project=login             # login tests only
-npx playwright test --project=mobile            # fees and isolation tests
-npx playwright test --project=mobile --headed   # watch the browser
-npx playwright show-report                       # open the last HTML report
+## Project structure
+
+```text
+src/
+  admin-server/              Server-only platform admin operations
+  components/                App, marketing, and shadcn/ui components
+  hooks/                     Gym, plan, payment, photo, and responsive hooks
+  integrations/supabase/     Supabase clients, auth middleware, and generated types
+  lib/                       Fee logic, formatting, queries, exports, and schemas
+  routes/                    TanStack file-based routes
+    _authenticated/          Protected gym-owner pages
+    _marketing/              Public marketing pages
+    admin/                   Platform admin interface
+e2e/                         Playwright tests and helpers
+drizzle/                     Drizzle schema and generated migration history
+tests/                       SQL database tests
+public/                      Static assets
 ```
 
-Playwright starts the dev server itself (`webServer` in `playwright.config.ts`). If port 8080 is already used by an old server, stop it first, otherwise tests may run against a different instance.
+## Admin panel
 
-### If login in the setup test fails
+The platform admin interface is available at `/admin` and uses a separate session from the gym-owner app. Every admin request verifies the user, platform-admin membership, MFA level, and rate limits.
 
-Save a session by hand instead, then skip the setup project:
+See [ADMIN.md](./ADMIN.md) for setup and operational checks.
 
-```bash
-mkdir e2e\.auth
-npx playwright codegen --save-storage=e2e/.auth/gymA.json http://localhost:8080/login
-npx playwright test --project=mobile --no-deps
-```
+## Deployment
 
-Log in in the window that opens, wait for the dashboard, then close the browser window. The session file is written when the browser closes. Repeat if the session expires.
-
-### What is covered
-
-| Test | Rule it protects |
-|---|---|
-| New member with fee | expiry is join date plus one month |
-| New member without fee, then first payment | the first payment does not extend expiry a second time |
-| Payment undo (void), then pay again | one live payment per member per month still works |
-| Gym B cannot see Gym A's members | row level security keeps gyms apart (needs the Gym B login) |
-| Login and protected routes | wrong password is rejected, inner pages need a login |
-
-Tests that depend on today's date are skipped on the 29th to 31st of a month, where month-end date math differs.
-
-### Test data cleanup
-
-Test members are named `QA-fee-…`, `QA-nofee-…` and `QA-void-…`. The fees spec deletes the members it creates after each test. If a run is stopped halfway, delete leftover `QA-*` members from the Members page.
-
-### CI
-
-`.github/workflows/playwright.yml` runs the Playwright tests on push. Add `E2E_EMAIL` and `E2E_PASSWORD` (and the Supabase variables) as GitHub repository secrets. Never put them in the workflow file.
-
-## Deploy
+Build and deploy to Cloudflare Workers:
 
 ```bash
 npm run build
 npx wrangler deploy
+```
+
+Store the service-role key as a Cloudflare secret, never as a public Wrangler variable:
+
+```bash
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
 ```
 
-Roll back a bad release with `npx wrangler rollback`.
-
-The Cloudflare build installs with `bun install --frozen-lockfile`. After adding or changing any dependency, run `bun install` and commit `bun.lock`, otherwise the build fails with a lockfile mismatch.
+`wrangler.jsonc` contains the Worker entry point, static asset binding, compatibility settings, and non-secret runtime configuration.
 
 ## Security model
 
-- Every business table carries `gym_id` and is protected by Row Level Security; a gym can never read another gym's rows.
-- No public sign-up. Accounts are created by the operator.
-- Payments are never deleted, only voided with a reason; voided rows are locked.
-- The service role key exists only in server code and is never bundled for the browser.
-- Admin routes verify the session, platform-admin membership, MFA, and a rate limit on every request.
-- Test credentials (`.env.test`) and saved sessions (`e2e/.auth/`) are git-ignored and must never be committed.
-
-## Fee logic in one paragraph
-
-A member is **paid** for a month if that month has a live payment. Quarterly and yearly members are **covered** for months between their first payment and expiry. A member whose expiry has passed in the current month shows as **expired** and moves to the unpaid list until renewed. A new member's expiry is join date plus the plan length, and their first payment does not extend it again; later payments extend from the current expiry. "Today" is Pakistan time on the database side.
+- Business data is scoped by `gym_id` and protected by Supabase RLS.
+- Public sign-up is disabled; accounts are provisioned by the operator.
+- Payments are voided with a reason instead of being silently deleted.
+- Service-role access is restricted to server-only modules.
+- Admin actions require platform-admin membership and MFA by default.
+- Environment files, test credentials, browser sessions, and generated reports are not committed.
